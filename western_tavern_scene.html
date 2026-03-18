@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Western Tavern v1.0 — main room blockout</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { overflow: hidden; background: #19120e; }
+  canvas { display: block; }
+  #info {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    max-width: 360px;
+    color: #e7dccd;
+    background: rgba(0,0,0,0.52);
+    padding: 10px 12px;
+    border-radius: 8px;
+    font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<div id="info">
+  <strong>Western Tavern v1.0 — main room blockout</strong><br>
+  Drag to orbit · Scroll to zoom · Right-drag to pan<br>
+  Simple western tavern with modular props and locked placement sheet
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// Minimal OrbitControls
+THREE.OrbitControls = function(camera, domElement) {
+  this.camera = camera;
+  this.domElement = domElement;
+  this.target = new THREE.Vector3();
+  this.enableDamping = true;
+  this.dampingFactor = 0.08;
+  this.rotateSpeed = 0.85;
+  this.zoomSpeed = 1.05;
+  this.panSpeed = 0.7;
+  const scope = this;
+  const STATE = { NONE: -1, ROTATE: 0, PAN: 1 };
+  let state = STATE.NONE;
+  const spherical = new THREE.Spherical();
+  const sphericalDelta = new THREE.Spherical();
+  const panOffset = new THREE.Vector3();
+  let scale = 1;
+  const rotateStart = new THREE.Vector2();
+  const rotateEnd = new THREE.Vector2();
+  const panStart = new THREE.Vector2();
+  const panEnd = new THREE.Vector2();
+  function getZoomScale() { return Math.pow(0.95, scope.zoomSpeed); }
+  function rotateLeft(angle) { sphericalDelta.theta -= angle; }
+  function rotateUp(angle) { sphericalDelta.phi -= angle; }
+  function panLeft(distance, objectMatrix) {
+    const v = new THREE.Vector3();
+    v.setFromMatrixColumn(objectMatrix, 0);
+    v.multiplyScalar(-distance);
+    panOffset.add(v);
+  }
+  function panUp(distance, objectMatrix) {
+    const v = new THREE.Vector3();
+    v.setFromMatrixColumn(objectMatrix, 1);
+    v.multiplyScalar(distance);
+    panOffset.add(v);
+  }
+  function pan(deltaX, deltaY) {
+    const element = scope.domElement;
+    const offset = new THREE.Vector3();
+    offset.copy(scope.camera.position).sub(scope.target);
+    let targetDistance = offset.length();
+    targetDistance *= Math.tan((scope.camera.fov / 2) * Math.PI / 180.0);
+    panLeft(2 * deltaX * targetDistance / element.clientHeight, scope.camera.matrix);
+    panUp(2 * deltaY * targetDistance / element.clientHeight, scope.camera.matrix);
+  }
+  this.update = function() {
+    const offset = new THREE.Vector3();
+    const quat = new THREE.Quaternion().setFromUnitVectors(camera.up, new THREE.Vector3(0, 1, 0));
+    const quatInverse = quat.clone().invert();
+    offset.copy(camera.position).sub(scope.target);
+    offset.applyQuaternion(quat);
+    spherical.setFromVector3(offset);
+    spherical.theta += sphericalDelta.theta * (scope.enableDamping ? scope.dampingFactor : 1);
+    spherical.phi += sphericalDelta.phi * (scope.enableDamping ? scope.dampingFactor : 1);
+    spherical.phi = Math.max(0.01, Math.min(Math.PI - 0.01, spherical.phi));
+    spherical.radius *= scale;
+    spherical.radius = Math.max(5, Math.min(400, spherical.radius));
+    scope.target.add(panOffset);
+    offset.setFromSpherical(spherical);
+    offset.applyQuaternion(quatInverse);
+    camera.position.copy(scope.target).add(offset);
+    camera.lookAt(scope.target);
+    sphericalDelta.theta *= scope.enableDamping ? (1 - scope.dampingFactor) : 0;
+    sphericalDelta.phi *= scope.enableDamping ? (1 - scope.dampingFactor) : 0;
+    panOffset.set(0, 0, 0);
+    scale = 1;
+  };
+  function onMouseDown(event) {
+    if (event.button === 0) { state = STATE.ROTATE; rotateStart.set(event.clientX, event.clientY); }
+    else if (event.button === 2) { state = STATE.PAN; panStart.set(event.clientX, event.clientY); }
+  }
+  function onMouseMove(event) {
+    if (state === STATE.ROTATE) {
+      rotateEnd.set(event.clientX, event.clientY);
+      const element = scope.domElement;
+      rotateLeft(2 * Math.PI * (rotateEnd.x - rotateStart.x) / element.clientWidth * scope.rotateSpeed);
+      rotateUp(2 * Math.PI * (rotateEnd.y - rotateStart.y) / element.clientHeight * scope.rotateSpeed);
+      rotateStart.copy(rotateEnd);
+    } else if (state === STATE.PAN) {
+      panEnd.set(event.clientX, event.clientY);
+      pan(panEnd.x - panStart.x, panEnd.y - panStart.y);
+      panStart.copy(panEnd);
+    }
+  }
+  function onMouseUp() { state = STATE.NONE; }
+  function onWheel(event) { if (event.deltaY > 0) scale /= getZoomScale(); else scale *= getZoomScale(); }
+  domElement.addEventListener('mousedown', onMouseDown, false);
+  domElement.addEventListener('mousemove', onMouseMove, false);
+  domElement.addEventListener('mouseup', onMouseUp, false);
+  domElement.addEventListener('wheel', onWheel, { passive: true });
+  domElement.addEventListener('contextmenu', e => e.preventDefault(), false);
+};
+</script>
+<script>
+// Western Tavern v1.0 — main room blockout
+const PARAMS = {
+  unit: 'ft',
+  roomWidth: 40,
+  roomDepth: 28,
+  roomHeight: 12,
+  wallThickness: 0.5,
+  beamCount: 5,
+  beamWidth: 1.1,
+  beamHeight: 0.55,
+  beamDepth: 28,
+  floorThickness: 0.35,
+  cameraPos: [28, 20, 34],
+  target: [0, 5, 0],
+  materials: {
+    wood:   { color: 0x6d4b2e, roughness: 0.88, metalness: 0.05 },
+    wood2:  { color: 0x7e5a38, roughness: 0.86, metalness: 0.03 },
+    woodDark:{ color: 0x4b311d, roughness: 0.9, metalness: 0.02 },
+    stone:  { color: 0x7d7268, roughness: 0.96, metalness: 0.02 },
+    metal:  { color: 0x676767, roughness: 0.35, metalness: 0.85 },
+    glass:  { color: 0x88aa88, roughness: 0.18, metalness: 0.0, transparent: true, opacity: 0.5 },
+    ground: { color: 0x3d2a1e, roughness: 1.0, metalness: 0.0 },
+    wall:   { color: 0x8e6f4f, roughness: 0.95, metalness: 0.0 },
+    glow:   { color: 0xff9933, roughness: 0.5, metalness: 0.0, emissive: 0xff7a22, emissiveIntensity: 0.9 },
+    accent: { color: 0x9b2222, roughness: 0.8, metalness: 0.0 },
+    white:  { color: 0xd9d0c3, roughness: 0.88, metalness: 0.0 },
+    blue:   { color: 0x244a8f, roughness: 0.8, metalness: 0.0 }
+  },
+  table: { width: 4.0, depth: 4.0, height: 3.0, topThickness: 0.25, legThickness: 0.25, legInset: 0.35 },
+  chair: { width: 2.0, depth: 2.0, seatHeight: 1.5, seatThickness: 0.18, totalHeight: 3.75, legThickness: 0.18, backHeightAboveSeat: 2.0 },
+  stool: { width: 1.4, depth: 1.4, height: 2.5, seatThickness: 0.15, legThickness: 0.15 },
+  bar: { width: 18.0, depth: 3.0, height: 4.0 },
+  fireplace: { width: 8.0, depth: 2.0, height: 6.0, openingWidth: 4.0, openingHeight: 3.5 },
+  barrel: { diameter: 2.0, height: 3.0, bandCount: 3 },
+  crate: { width: 2.0, depth: 2.0, height: 2.0 },
+  shelf: { width: 6.0, depth: 1.0, height: 6.0, levels: 3 },
+  bottle: { bodyDiameter: 0.35, bodyHeight: 0.75, neckDiameter: 0.14, neckHeight: 0.2 },
+  mug: { diameter: 0.35, height: 0.5, hasHandle: true }
+};
+
+const TAVERN_LAYOUT = {
+  anchors: [
+    { id: "bar_main", asset: "bar", pos: [14.5, 0, 1], rotY: 90 },
+    { id: "shelf_a", asset: "shelf", pos: [17.8, 0, -3.5], rotY: 90 },
+    { id: "shelf_b", asset: "shelf", pos: [17.8, 0, 3.5], rotY: 90 },
+    { id: "fireplace_main", asset: "fireplace", pos: [-12, 0, -13], rotY: 0 }
+  ],
+  tables: [
+    { id: "t1", asset: "table", pos: [-8, 0, -5], rotY: 0 },
+    { id: "t2", asset: "table", pos: [0, 0, -4], rotY: 0 },
+    { id: "t3", asset: "table", pos: [8, 0, -5], rotY: 0 },
+    { id: "t4", asset: "table", pos: [-6, 0, 5], rotY: 0 },
+    { id: "t5", asset: "table", pos: [7, 0, 6], rotY: 0 }
+  ],
+  chairs: [
+    { id: "c1", asset: "chair", pos: [-8, 0, -7], rotY: 0 },
+    { id: "c2", asset: "chair", pos: [-8, 0, -3], rotY: 180 },
+    { id: "c3", asset: "chair", pos: [-10, 0, -5], rotY: 90 },
+    { id: "c4", asset: "chair", pos: [-6, 0, -5], rotY: -90 },
+    { id: "c5", asset: "chair", pos: [0, 0, -6], rotY: 0 },
+    { id: "c6", asset: "chair", pos: [0, 0, -2], rotY: 180 },
+    { id: "c7", asset: "chair", pos: [-2, 0, -4], rotY: 90 },
+    { id: "c8", asset: "chair", pos: [2, 0, -4], rotY: -90 },
+    { id: "c9", asset: "chair", pos: [8, 0, -7], rotY: 0 },
+    { id: "c10", asset: "chair", pos: [8, 0, -3], rotY: 180 },
+    { id: "c11", asset: "chair", pos: [6, 0, -5], rotY: 90 },
+    { id: "c12", asset: "chair", pos: [10, 0, -5], rotY: -90 },
+    { id: "c13", asset: "chair", pos: [-6, 0, 3], rotY: 0 },
+    { id: "c14", asset: "chair", pos: [-6, 0, 7], rotY: 180 },
+    { id: "c15", asset: "chair", pos: [-8, 0, 5], rotY: 90 },
+    { id: "c16", asset: "chair", pos: [-4, 0, 5], rotY: -90 },
+    { id: "c17", asset: "chair", pos: [7, 0, 4], rotY: 0 },
+    { id: "c18", asset: "chair", pos: [7, 0, 8], rotY: 180 },
+    { id: "c19", asset: "chair", pos: [5, 0, 6], rotY: 90 },
+    { id: "c20", asset: "chair", pos: [9, 0, 6], rotY: -90 }
+  ],
+  stools: [
+    { id: "s1", asset: "stool", pos: [11.8, 0, -6], rotY: 90 },
+    { id: "s2", asset: "stool", pos: [11.8, 0, -3], rotY: 90 },
+    { id: "s3", asset: "stool", pos: [11.8, 0, 0], rotY: 90 },
+    { id: "s4", asset: "stool", pos: [11.8, 0, 3], rotY: 90 },
+    { id: "s5", asset: "stool", pos: [11.8, 0, 6], rotY: 90 },
+    { id: "s6", asset: "stool", pos: [11.8, 0, 9], rotY: 90 }
+  ],
+  barrels: [
+    { id: "b1", asset: "barrel", pos: [-16, 0, -10.5], rotY: 10, scale: [1, 1.0, 1] },
+    { id: "b2", asset: "barrel", pos: [-14.6, 0, -9.2], rotY: -15, scale: [1, 0.92, 1] },
+    { id: "b3", asset: "barrel", pos: [15.8, 0, -12], rotY: 20, scale: [1, 1.08, 1] },
+    { id: "b4", asset: "barrel", pos: [13.8, 0, -11], rotY: -10, scale: [1, 1.0, 1] },
+    { id: "b5", asset: "barrel", pos: [15.5, 0, 10.5], rotY: 15, scale: [1, 1.0, 1] },
+    { id: "b6", asset: "barrel", pos: [13.7, 0, 11.6], rotY: -8, scale: [1, 0.92, 1] },
+    { id: "b7", asset: "barrel", pos: [-17, 0, 11], rotY: 12, scale: [1, 1.0, 1] },
+    { id: "b8", asset: "barrel", pos: [17, 0, 12], rotY: -12, scale: [1, 1.08, 1] }
+  ],
+  crates: [
+    { id: "cr1", asset: "crate", pos: [-13.2, 0, -10.8], rotY: 0 },
+    { id: "cr2", asset: "crate", pos: [14.1, 0, -9], rotY: 90 },
+    { id: "cr3", asset: "crate", pos: [16.2, 0, -8.2], rotY: 0 },
+    { id: "cr4", asset: "crate", pos: [12.6, 0, 10.8], rotY: 90 },
+    { id: "cr5", asset: "crate", pos: [-15.2, 0, 10.2], rotY: 0 },
+    { id: "cr6", asset: "crate", pos: [15.2, 2.0, -8.2], rotY: 10 }
+  ],
+  bottleClusters: [
+    { id: "ba1", asset: "bottleClusterA", pos: [17.2, 1.4, -5.0], rotY: 90 },
+    { id: "ba2", asset: "bottleClusterA", pos: [17.2, 1.4, -3.2], rotY: 90 },
+    { id: "bb1", asset: "bottleClusterB", pos: [17.2, 3.5, -4.4], rotY: 90 },
+    { id: "bc1", asset: "bottleClusterC", pos: [17.2, 5.6, -3.8], rotY: 90 },
+    { id: "ba3", asset: "bottleClusterA", pos: [17.2, 1.4, 2.2], rotY: 90 },
+    { id: "ba4", asset: "bottleClusterA", pos: [17.2, 1.4, 4.0], rotY: 90 },
+    { id: "bb2", asset: "bottleClusterB", pos: [17.2, 3.5, 3.1], rotY: 90 },
+    { id: "bc2", asset: "bottleClusterC", pos: [17.2, 5.6, 4.4], rotY: 90 },
+    { id: "bc3", asset: "bottleClusterC", pos: [14.6, 4.0, -2.0], rotY: 0 },
+    { id: "ba5", asset: "bottleClusterA", pos: [14.6, 4.0, 1.5], rotY: 0 },
+    { id: "bb3", asset: "bottleClusterB", pos: [14.6, 4.0, 5.0], rotY: 0 }
+  ],
+  mugs: [
+    { id: "m1", asset: "mug", pos: [-8.4, 3.0, -4.6], rotY: 20 },
+    { id: "m2", asset: "mug", pos: [0.6, 3.0, -4.3], rotY: -10 },
+    { id: "m3", asset: "mug", pos: [7.5, 3.0, -5.5], rotY: 12 },
+    { id: "m4", asset: "mug", pos: [-6.4, 3.0, 4.4], rotY: -18 },
+    { id: "m5", asset: "mug", pos: [7.4, 3.0, 6.5], rotY: 9 },
+    { id: "m6", asset: "mug", pos: [13.8, 4.0, 7.2], rotY: 0 },
+    { id: "m7", asset: "mug", pos: [14.0, 4.0, -6.8], rotY: 0 }
+  ]
+};
+
+const MATS = {};
+function initMaterials() {
+  for (const [k, v] of Object.entries(PARAMS.materials)) {
+    MATS[k] = new THREE.MeshStandardMaterial(v);
+  }
+}
+function makeBox(w, h, d, mat) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  return m;
+}
+function makeCyl(r, h, mat, seg = 16) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, seg), mat);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  return m;
+}
+function placeAsset(factory, item, parent) {
+  const obj = factory[item.asset]();
+  obj.name = item.id;
+  obj.position.set(...item.pos);
+  obj.rotation.y = THREE.MathUtils.degToRad(item.rotY || 0);
+  if (item.scale) obj.scale.set(...item.scale);
+  parent.add(obj);
+  return obj;
+}
+
+function buildShell() {
+  const g = new THREE.Group();
+  g.name = 'tavern_shell';
+
+  const floor = makeBox(PARAMS.roomWidth, PARAMS.floorThickness, PARAMS.roomDepth, MATS.ground);
+  floor.name = 'floor';
+  floor.position.y = PARAMS.floorThickness * 0.5;
+  g.add(floor);
+
+  const halfW = PARAMS.roomWidth * 0.5;
+  const halfD = PARAMS.roomDepth * 0.5;
+  const wh = PARAMS.roomHeight * 0.5;
+  const t = PARAMS.wallThickness;
+
+  // back wall
+  const back = makeBox(PARAMS.roomWidth, PARAMS.roomHeight, t, MATS.wall);
+  back.position.set(0, wh, -halfD);
+  back.name = 'wall_back';
+  g.add(back);
+
+  // left/right walls
+  const left = makeBox(t, PARAMS.roomHeight, PARAMS.roomDepth, MATS.wall);
+  left.position.set(-halfW, wh, 0);
+  left.name = 'wall_left';
+  g.add(left);
+
+  const right = makeBox(t, PARAMS.roomHeight, PARAMS.roomDepth, MATS.wall);
+  right.position.set(halfW, wh, 0);
+  right.name = 'wall_right';
+  g.add(right);
+
+  // front wall with central door gap represented by side segments and a lintel
+  const sideWidth = 16;
+  const frontLeft = makeBox(sideWidth, PARAMS.roomHeight, t, MATS.wall);
+  frontLeft.position.set(-12, wh, halfD);
+  frontLeft.name = 'wall_front_left';
+  g.add(frontLeft);
+
+  const frontRight = makeBox(sideWidth, PARAMS.roomHeight, t, MATS.wall);
+  frontRight.position.set(12, wh, halfD);
+  frontRight.name = 'wall_front_right';
+  g.add(frontRight);
+
+  const lintel = makeBox(8, 3, t, MATS.wall);
+  lintel.position.set(0, 10.5, halfD);
+  lintel.name = 'door_lintel';
+  g.add(lintel);
+
+  const doorVoid = makeBox(8, 9, 0.6, new THREE.MeshStandardMaterial({ color: 0x120c08, roughness: 1 }));
+  doorVoid.position.set(0, 4.5, halfD - 0.1);
+  doorVoid.name = 'door_void';
+  g.add(doorVoid);
+
+  // windows
+  const winMat = MATS.glass;
+  const w1 = makeBox(3.5, 3.5, 0.2, winMat);
+  w1.position.set(-14, 6.5, halfD - 0.12);
+  w1.name = 'window_left';
+  g.add(w1);
+  const w2 = makeBox(3.5, 3.5, 0.2, winMat);
+  w2.position.set(14, 6.5, halfD - 0.12);
+  w2.name = 'window_right';
+  g.add(w2);
+
+  // beams
+  const beamGap = PARAMS.roomWidth / (PARAMS.beamCount + 1);
+  for (let i = 0; i < PARAMS.beamCount; i++) {
+    const beam = makeBox(PARAMS.beamWidth, PARAMS.beamHeight, PARAMS.beamDepth, MATS.woodDark);
+    beam.position.set(-halfW + beamGap * (i + 1), PARAMS.roomHeight - 0.8, 0);
+    beam.name = `ceiling_beam_${i}`;
+    g.add(beam);
+  }
+
+  // chandelier
+  const chand = new THREE.Group();
+  chand.name = 'chandelier';
+  const chain = makeBox(0.08, 2.5, 0.08, MATS.metal);
+  chain.position.y = PARAMS.roomHeight - 1.25;
+  chand.add(chain);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(1.4, 0.08, 8, 18), MATS.metal);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = PARAMS.roomHeight - 2.6;
+  ring.castShadow = true;
+  chand.add(ring);
+  for (const a of [0, Math.PI * 0.5, Math.PI, Math.PI * 1.5]) {
+    const candle = makeBox(0.12, 0.35, 0.12, MATS.white);
+    candle.position.set(Math.cos(a) * 1.4, PARAMS.roomHeight - 2.35, Math.sin(a) * 1.4);
+    chand.add(candle);
+  }
+  g.add(chand);
+
+  return g;
+}
+
+const factory = {
+  table() {
+    const p = PARAMS.table; const g = new THREE.Group(); g.name = 'table';
+    const top = makeBox(p.width, p.topThickness, p.depth, MATS.wood2); top.position.y = p.height - p.topThickness * 0.5; g.add(top);
+    const legH = p.height - p.topThickness; const lx = p.width * 0.5 - p.legInset - p.legThickness * 0.5; const lz = p.depth * 0.5 - p.legInset - p.legThickness * 0.5;
+    for (const sx of [-1,1]) for (const sz of [-1,1]) { const leg = makeBox(p.legThickness, legH, p.legThickness, MATS.woodDark); leg.position.set(sx*lx, legH*0.5, sz*lz); g.add(leg); }
+    return g;
+  },
+  chair() {
+    const p = PARAMS.chair; const g = new THREE.Group(); g.name = 'chair';
+    const seat = makeBox(p.width, p.seatThickness, p.depth, MATS.wood2); seat.position.y = p.seatHeight; g.add(seat);
+    const legH = p.seatHeight; const lx = p.width*0.5 - p.legThickness*0.8; const lz = p.depth*0.5 - p.legThickness*0.8;
+    for (const sx of [-1,1]) for (const sz of [-1,1]) { const leg = makeBox(p.legThickness, legH, p.legThickness, MATS.woodDark); leg.position.set(sx*lx, legH*0.5, sz*lz); g.add(leg); }
+    const back = makeBox(p.width*0.8, p.backHeightAboveSeat, p.legThickness, MATS.woodDark);
+    back.position.set(0, p.seatHeight + p.backHeightAboveSeat * 0.5, -p.depth*0.45);
+    g.add(back);
+    return g;
+  },
+  stool() {
+    const p = PARAMS.stool; const g = new THREE.Group(); g.name = 'stool';
+    const seat = makeBox(p.width, p.seatThickness, p.depth, MATS.wood2); seat.position.y = p.height; g.add(seat);
+    const lx = p.width*0.5 - p.legThickness*0.7; const lz = p.depth*0.5 - p.legThickness*0.7;
+    for (const sx of [-1,1]) for (const sz of [-1,1]) { const leg = makeBox(p.legThickness, p.height, p.legThickness, MATS.woodDark); leg.position.set(sx*lx, p.height*0.5, sz*lz); g.add(leg); }
+    return g;
+  },
+  bar() {
+    const p = PARAMS.bar; const g = new THREE.Group(); g.name = 'bar';
+    const top = makeBox(p.width, 0.2, p.depth + 0.2, MATS.wood2); top.position.y = p.height - 0.1; g.add(top);
+    const front = makeBox(p.width, p.height - 0.4, 0.2, MATS.woodDark); front.position.set(0, (p.height - 0.4)*0.5, p.depth*0.5 - 0.1); g.add(front);
+    const back = makeBox(p.width, p.height - 0.4, 0.2, MATS.woodDark); back.position.set(0, (p.height - 0.4)*0.5, -p.depth*0.5 + 0.1); g.add(back);
+    const left = makeBox(0.2, p.height - 0.4, p.depth - 0.2, MATS.woodDark); left.position.set(-p.width*0.5 + 0.1, (p.height - 0.4)*0.5, 0); g.add(left);
+    const right = makeBox(0.2, p.height - 0.4, p.depth - 0.2, MATS.woodDark); right.position.set(p.width*0.5 - 0.1, (p.height - 0.4)*0.5, 0); g.add(right);
+    for (const x of [-p.width/3, 0, p.width/3]) { const panel = makeBox(4.6, 2.0, 0.06, MATS.wood); panel.position.set(x, 1.8, p.depth*0.5 - 0.19); g.add(panel); }
+    return g;
+  },
+  fireplace() {
+    const p = PARAMS.fireplace; const g = new THREE.Group(); g.name = 'fireplace';
+    const body = makeBox(p.width, p.height, p.depth, MATS.stone); body.position.y = p.height*0.5; g.add(body);
+    const opening = makeBox(p.openingWidth, p.openingHeight, p.depth*0.7, new THREE.MeshStandardMaterial({ color: 0x1c1511, roughness: 1 }));
+    opening.position.set(0, p.openingHeight*0.5 + 0.2, p.depth*0.15); g.add(opening);
+    const mantle = makeBox(p.width + 0.5, 0.25, 0.55, MATS.woodDark); mantle.position.set(0, 4.2, 0.55); g.add(mantle);
+    const hearth = makeBox(5.5, 0.35, 2.4, MATS.stone); hearth.position.set(0, 0.18, 0.2); g.add(hearth);
+    const glow = makeBox(2.2, 1.2, 0.45, MATS.glow); glow.position.set(0, 0.85, 0.18); g.add(glow);
+    return g;
+  },
+  barrel() {
+    const p = PARAMS.barrel; const g = new THREE.Group(); g.name = 'barrel';
+    const body = makeCyl(p.diameter*0.5, p.height, MATS.wood2, 16); body.position.y = p.height*0.5; g.add(body);
+    for (const y of [0.55, 1.5, 2.45]) { const band = makeCyl(p.diameter*0.52, 0.12, MATS.metal, 16); band.position.y = y; g.add(band); }
+    return g;
+  },
+  crate() {
+    const p = PARAMS.crate; const g = new THREE.Group(); g.name = 'crate';
+    const body = makeBox(p.width, p.height, p.depth, MATS.wood); body.position.y = p.height*0.5; g.add(body);
+    return g;
+  },
+  shelf() {
+    const p = PARAMS.shelf; const g = new THREE.Group(); g.name = 'shelf';
+    const left = makeBox(0.15, p.height, p.depth, MATS.woodDark); left.position.set(-p.width*0.5 + 0.075, p.height*0.5, 0); g.add(left);
+    const right = makeBox(0.15, p.height, p.depth, MATS.woodDark); right.position.set(p.width*0.5 - 0.075, p.height*0.5, 0); g.add(right);
+    for (const y of [1.4, 3.5, 5.6]) { const shelf = makeBox(p.width, 0.12, p.depth, MATS.wood2); shelf.position.set(0, y, 0); g.add(shelf); }
+    const back = makeBox(p.width, p.height, 0.08, MATS.woodDark); back.position.set(0, p.height*0.5, -p.depth*0.45); g.add(back);
+    return g;
+  },
+  bottle() {
+    const p = PARAMS.bottle; const g = new THREE.Group(); g.name = 'bottle';
+    const body = makeCyl(p.bodyDiameter*0.5, p.bodyHeight, MATS.glass, 12); body.position.y = p.bodyHeight*0.5; g.add(body);
+    const neck = makeCyl(p.neckDiameter*0.5, p.neckHeight, MATS.glass, 10); neck.position.y = p.bodyHeight + p.neckHeight*0.5; g.add(neck);
+    return g;
+  },
+  mug() {
+    const p = PARAMS.mug; const g = new THREE.Group(); g.name = 'mug';
+    const body = makeCyl(p.diameter*0.5, p.height, MATS.metal, 12); body.position.y = p.height*0.5; g.add(body);
+    const h1 = makeBox(0.05, 0.22, 0.12, MATS.metal); h1.position.set(0.2, 0.28, 0); g.add(h1);
+    const h2 = makeBox(0.05, 0.05, 0.12, MATS.metal); h2.position.set(0.16, 0.38, 0); g.add(h2);
+    const h3 = makeBox(0.05, 0.05, 0.12, MATS.metal); h3.position.set(0.16, 0.18, 0); g.add(h3);
+    return g;
+  },
+  bottleClusterA() {
+    const g = new THREE.Group(); g.name = 'bottle_cluster_a';
+    const a = this.bottle(); a.position.set(-0.25, 0, -0.05); a.scale.set(1.0, 1.0, 1.0); g.add(a);
+    const b = this.bottle(); b.position.set(0.0, 0, 0.08); b.scale.set(0.95, 1.08, 0.95); g.add(b);
+    const c = this.bottle(); c.position.set(0.28, 0, -0.03); c.scale.set(1.05, 0.92, 1.05); g.add(c);
+    return g;
+  },
+  bottleClusterB() {
+    const g = new THREE.Group(); g.name = 'bottle_cluster_b';
+    const coords = [[-0.38,0,-0.08],[ -0.1,0,0.06],[0.15,0,-0.04],[0.42,0,0.1]];
+    const scales = [[0.95,1.0,0.95],[1.05,1.08,1.05],[0.9,0.92,0.9],[1.0,1.12,1.0]];
+    coords.forEach((c,i)=>{ const b = this.bottle(); b.position.set(...c); b.scale.set(...scales[i]); g.add(b); });
+    return g;
+  },
+  bottleClusterC() {
+    const g = new THREE.Group(); g.name = 'bottle_cluster_c';
+    const b1 = this.bottle(); b1.position.set(-0.18,0,-0.04); g.add(b1);
+    const b2 = this.bottle(); b2.position.set(0.15,0,0.08); b2.scale.set(0.95,1.08,0.95); g.add(b2);
+    const m = this.mug(); m.position.set(0.48,0,0.0); g.add(m);
+    return g;
+  }
+};
+
+function buildModel(scene) {
+  const root = new THREE.Group();
+  root.name = 'western_tavern_root';
+  root.add(buildShell());
+
+  TAVERN_LAYOUT.anchors.forEach(i => placeAsset(factory, i, root));
+  TAVERN_LAYOUT.tables.forEach(i => placeAsset(factory, i, root));
+  TAVERN_LAYOUT.chairs.forEach(i => placeAsset(factory, i, root));
+  TAVERN_LAYOUT.stools.forEach(i => placeAsset(factory, i, root));
+  TAVERN_LAYOUT.barrels.forEach(i => placeAsset(factory, i, root));
+  TAVERN_LAYOUT.crates.forEach(i => placeAsset(factory, i, root));
+  TAVERN_LAYOUT.bottleClusters.forEach(i => placeAsset(factory, i, root));
+  TAVERN_LAYOUT.mugs.forEach(i => placeAsset(factory, i, root));
+
+  scene.add(root);
+  return root;
+}
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x19120e);
+scene.fog = new THREE.Fog(0x19120e, 55, 130);
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 300);
+camera.position.set(...PARAMS.cameraPos);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+document.body.appendChild(renderer.domElement);
+
+initMaterials();
+
+const ambient = new THREE.AmbientLight(0xffffff, 0.45);
+scene.add(ambient);
+const warm = new THREE.PointLight(0xffa34a, 1.2, 80, 2.0);
+warm.position.set(-12, 4.5, -12.2);
+scene.add(warm);
+const dir = new THREE.DirectionalLight(0xffffff, 0.55);
+dir.position.set(20, 28, 12);
+dir.castShadow = true;
+dir.shadow.mapSize.set(2048, 2048);
+dir.shadow.camera.left = -40;
+dir.shadow.camera.right = 40;
+dir.shadow.camera.top = 40;
+dir.shadow.camera.bottom = -40;
+dir.shadow.camera.near = 1;
+dir.shadow.camera.far = 120;
+scene.add(dir);
+const fill = new THREE.DirectionalLight(0x996633, 0.18);
+fill.position.set(-18, 10, -10);
+scene.add(fill);
+
+const grid = new THREE.GridHelper(60, 30, 0x5e4832, 0x2b2119);
+grid.position.y = 0.02;
+scene.add(grid);
+
+const model = buildModel(scene);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.target.set(...PARAMS.target);
+controls.update();
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>

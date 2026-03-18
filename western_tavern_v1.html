@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Western Tavern v1.0 — staged blockout</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { overflow: hidden; background: #19120e; }
+  canvas { display: block; }
+  #info {
+    position: fixed; top: 12px; left: 12px;
+    color: #e7dccd; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: rgba(0,0,0,0.52); padding: 10px 12px;
+    border-radius: 8px; pointer-events: none; max-width: 360px;
+  }
+</style>
+</head>
+<body>
+<div id="info">
+  <strong>Western Tavern v1.0 — staged blockout</strong><br>
+  Orbit: drag &middot; Zoom: scroll &middot; Pan: right-drag<br>
+  Proper chair facing &middot; Saloon doors &middot; Stair corner
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+THREE.OrbitControls=function(c,d){this.camera=c;this.domElement=d;this.target=new THREE.Vector3;this.enableDamping=!0;this.dampingFactor=.08;this.rotateSpeed=.8;this.zoomSpeed=1.2;this.panSpeed=.6;var s=this,S={NONE:-1,ROT:0,PAN:2},st=S.NONE,sp=new THREE.Spherical,sd=new THREE.Spherical,po=new THREE.Vector3,sc=1,rs=new THREE.Vector2,re=new THREE.Vector2,ps=new THREE.Vector2,pe=new THREE.Vector2;function zs(){return Math.pow(.95,s.zoomSpeed)}function rl(a){sd.theta-=a}function ru(a){sd.phi-=a}function pl(d,m){var v=new THREE.Vector3;v.setFromMatrixColumn(m,0);v.multiplyScalar(-d);po.add(v)}function pu(d,m){var v=new THREE.Vector3;v.setFromMatrixColumn(m,1);v.multiplyScalar(d);po.add(v)}function pn(dx,dy){var e=s.domElement,o=new THREE.Vector3().copy(s.camera.position).sub(s.target),td=o.length()*Math.tan(s.camera.fov/2*Math.PI/180);pl(2*dx*td/e.clientHeight,s.camera.matrix);pu(2*dy*td/e.clientHeight,s.camera.matrix)}this.update=function(){var o=new THREE.Vector3,q=new THREE.Quaternion().setFromUnitVectors(c.up,new THREE.Vector3(0,1,0)),qi=q.clone().invert();o.copy(c.position).sub(s.target);o.applyQuaternion(q);sp.setFromVector3(o);sp.theta+=sd.theta*(s.enableDamping?s.dampingFactor:1);sp.phi+=sd.phi*(s.enableDamping?s.dampingFactor:1);sp.phi=Math.max(.01,Math.min(Math.PI-.01,sp.phi));sp.radius*=sc;sp.radius=Math.max(5,Math.min(400,sp.radius));s.target.add(po);o.setFromSpherical(sp);o.applyQuaternion(qi);c.position.copy(s.target).add(o);c.lookAt(s.target);sd.theta*=s.enableDamping?1-s.dampingFactor:0;sd.phi*=s.enableDamping?1-s.dampingFactor:0;po.set(0,0,0);sc=1};d.addEventListener('mousedown',function(e){if(e.button===0){st=S.ROT;rs.set(e.clientX,e.clientY)}else if(e.button===2){st=S.PAN;ps.set(e.clientX,e.clientY)}},!1);d.addEventListener('mousemove',function(e){if(st===S.ROT){re.set(e.clientX,e.clientY);var el=s.domElement;rl(2*Math.PI*(re.x-rs.x)/el.clientWidth*s.rotateSpeed);ru(2*Math.PI*(re.y-rs.y)/el.clientHeight*s.rotateSpeed);rs.copy(re)}else if(st===S.PAN){pe.set(e.clientX,e.clientY);pn(pe.x-ps.x,pe.y-ps.y);ps.copy(pe)}},!1);d.addEventListener('mouseup',function(){st=S.NONE},!1);d.addEventListener('wheel',function(e){if(e.deltaY>0)sc/=zs();else sc*=zs()},{passive:!0});d.addEventListener('contextmenu',function(e){e.preventDefault()},!1)};
+</script>
+<script>
+// Western Tavern v1.0 — staged blockout
+// Built via staged-3d-modeler skill
+
+// ══════════════════════════════════════════════════════════
+//  PARAMS
+// ══════════════════════════════════════════════════════════
+const P = {
+    unit: 'ft',
+    room: { w: 40, d: 28, h: 12, wall: 0.5, floor: 0.35 },
+    beam: { count: 5, w: 1.1, h: 0.55 },
+    door: { w: 7, h: 9 },
+    win:  { w: 3.5, h: 3.5, sill: 5 },
+    table: { w: 4, d: 4, h: 3, top: 0.28, leg: 0.28, inset: 0.35 },
+    chair: { w: 1.8, d: 1.8, seatH: 1.55, seat: 0.2, leg: 0.2, backH: 1.9 },
+    stool: { w: 1.4, d: 1.4, h: 2.5, seat: 0.16, leg: 0.16 },
+    bar:   { len: 18, d: 3, h: 4 },
+    fp:    { w: 8, d: 2.2, h: 6.5, openW: 4, openH: 3.5 },
+    barrel:{ r: 1.0, h: 3.0 },
+    crate: { s: 2.0 },
+    shelf: { w: 6, d: 1, h: 6 },
+    bottle:{ br: 0.175, bh: 0.75, nr: 0.07, nh: 0.2 },
+    mug:   { r: 0.175, h: 0.5 },
+    stair: { w: 4, d: 5, h: 6, n: 8 }
+};
+
+// ══════════════════════════════════════════════════════════
+//  MATERIALS
+// ══════════════════════════════════════════════════════════
+const M = {};
+function initMats() {
+    const S = THREE.MeshStandardMaterial;
+    M.wood   = new S({ color: 0x6d4b2e, roughness: 0.88 });
+    M.wood2  = new S({ color: 0x7e5a38, roughness: 0.86 });
+    M.woodDk = new S({ color: 0x4b311d, roughness: 0.9 });
+    M.stone  = new S({ color: 0x7d7268, roughness: 0.96 });
+    M.metal  = new S({ color: 0x555555, roughness: 0.35, metalness: 0.85 });
+    M.glass  = new S({ color: 0x88aa88, roughness: 0.18, transparent: true, opacity: 0.45 });
+    M.ground = new S({ color: 0x3d2a1e, roughness: 1.0 });
+    M.wall   = new S({ color: 0x8e6f4f, roughness: 0.95 });
+    M.glow   = new S({ color: 0xff9933, roughness: 0.5, emissive: 0xff7a22, emissiveIntensity: 0.9 });
+    M.dark   = new S({ color: 0x1c1511, roughness: 1.0 });
+    M.white  = new S({ color: 0xd9d0c3, roughness: 0.88 });
+}
+
+// ══════════════════════════════════════════════════════════
+//  HELPERS — create + position in one step
+// ══════════════════════════════════════════════════════════
+function bx(w, h, d, mat, x, y, z) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x || 0, y || 0, z || 0);
+    m.castShadow = m.receiveShadow = true;
+    return m;
+}
+function cy(r, h, mat, seg, x, y, z) {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, seg || 16), mat);
+    m.position.set(x || 0, y || 0, z || 0);
+    m.castShadow = m.receiveShadow = true;
+    return m;
+}
+function face(cx, cz, tx, tz) { return Math.atan2(tx - cx, tz - cz); }
+
+// ══════════════════════════════════════════════════════════
+//  LAYOUT DATA
+// ══════════════════════════════════════════════════════════
+const TABLES = [[-8,-5],[0,-4],[8,-5],[-6,5],[7,6]];
+
+function buildChairData() {
+    const out = [], off = 2.3;
+    TABLES.forEach(([tx, tz]) => {
+        [[0,-off],[0,off],[-off,0],[off,0]].forEach(([dx, dz]) => {
+            const jx = (Math.random() - 0.5) * 0.25;
+            const jz = (Math.random() - 0.5) * 0.25;
+            const cx = tx + dx + jx, cz = tz + dz + jz;
+            const ang = face(cx, cz, tx, tz) + (Math.random() - 0.5) * 0.14;
+            out.push([cx, cz, ang]);
+        });
+    });
+    return out;
+}
+
+const STOOL_Z = [-6, -3, 0, 3, 6, 9];
+const BARRELS = [
+    [-16,-10.5,0.17,1],[-14.5,-9,-0.26,0.92],
+    [15.8,-12,0.35,1.08],[13.5,-11,-0.17,1],
+    [15.5,10.5,0.26,1],[13.7,11.5,-0.14,0.92],
+    [-17,11,0.21,1],[17,12,-0.21,1.08]
+];
+const CRATES = [
+    [-13.2,-10.8,0,0],[14,-9,0.3,0],[16.2,-8.2,0,0],
+    [12.5,10.8,0.4,0],[-15.2,10.2,0,0],[15.2,-8.2,0.18,2]
+];
+const MUG_POS = [
+    [-8.3,3,-4.7],[0.5,3,-4.2],[7.6,3,-5.4],
+    [-5.6,3,4.6],[7.3,3,6.4],[13.8,4,7],[14.1,4,-5.5]
+];
+
+// ══════════════════════════════════════════════════════════
+//  FACTORY
+// ══════════════════════════════════════════════════════════
+const F = {
+    table() {
+        const p = P.table, g = new THREE.Group(); g.name = 'table';
+        g.add(bx(p.w, p.top, p.d, M.wood2, 0, p.h - p.top / 2, 0));
+        const lh = p.h - p.top, lx = p.w / 2 - p.inset - p.leg / 2, lz = p.d / 2 - p.inset - p.leg / 2;
+        for (const sx of [-1, 1]) for (const sz of [-1, 1])
+            g.add(bx(p.leg, lh, p.leg, M.woodDk, sx * lx, lh / 2, sz * lz));
+        return g;
+    },
+    chair() {
+        const p = P.chair, g = new THREE.Group(); g.name = 'chair';
+        g.add(bx(p.w, p.seat, p.d, M.wood2, 0, p.seatH, 0));
+        const lx = p.w / 2 - p.leg * 0.8, lz = p.d / 2 - p.leg * 0.8;
+        for (const sx of [-1, 1]) for (const sz of [-1, 1])
+            g.add(bx(p.leg, p.seatH, p.leg, M.woodDk, sx * lx, p.seatH / 2, sz * lz));
+        g.add(bx(p.w * 0.78, p.backH, p.leg, M.woodDk, 0, p.seatH + p.backH / 2, -p.d * 0.45));
+        return g;
+    },
+    stool() {
+        const p = P.stool, g = new THREE.Group(); g.name = 'stool';
+        g.add(bx(p.w, p.seat, p.d, M.wood2, 0, p.h, 0));
+        const lx = p.w / 2 - p.leg * 0.7, lz = p.d / 2 - p.leg * 0.7;
+        for (const sx of [-1, 1]) for (const sz of [-1, 1])
+            g.add(bx(p.leg, p.h, p.leg, M.woodDk, sx * lx, p.h / 2, sz * lz));
+        return g;
+    },
+    bar() {
+        const p = P.bar, g = new THREE.Group(); g.name = 'bar';
+        const ph = p.h - 0.44;
+        g.add(bx(p.len, 0.22, p.d + 0.3, M.wood2, 0, p.h - 0.11, 0));
+        g.add(bx(p.len, ph, 0.22, M.woodDk, 0, ph / 2, p.d / 2));
+        g.add(bx(p.len, ph, 0.22, M.woodDk, 0, ph / 2, -p.d / 2));
+        for (const s of [-1, 1])
+            g.add(bx(0.22, ph, p.d - 0.2, M.woodDk, s * (p.len / 2 - 0.11), ph / 2, 0));
+        for (const x of [-p.len / 3, 0, p.len / 3])
+            g.add(bx(4.8, 2, 0.06, M.wood, x, 1.8, p.d / 2 - 0.18));
+        for (const y of [0.4, 3])
+            g.add(bx(p.len - 0.8, 0.22, 0.08, M.wood, 0, y, p.d / 2 + 0.05));
+        return g;
+    },
+    fireplace() {
+        const p = P.fp, g = new THREE.Group(); g.name = 'fireplace';
+        g.add(bx(p.w, p.h, p.d, M.stone, 0, p.h / 2, 0));
+        g.add(bx(p.openW, p.openH, p.d * 0.65, M.dark, 0, p.openH / 2 + 0.25, p.d * 0.2));
+        for (const s of [-1, 1])
+            g.add(bx(1.3, p.openH + 0.5, p.d * 0.85, M.stone, s * (p.openW / 2 + 0.65), (p.openH + 0.5) / 2, p.d * 0.08));
+        g.add(bx(p.w + 0.6, 0.3, 0.6, M.woodDk, 0, p.openH + 0.8, p.d * 0.3));
+        g.add(bx(p.openW + 1.5, 0.35, p.d + 1.2, M.stone, 0, 0.175, 0.3));
+        g.add(bx(2.4, 1.2, 0.5, M.glow, 0, 0.85, p.d * 0.2));
+        return g;
+    },
+    barrel() {
+        const p = P.barrel, g = new THREE.Group(); g.name = 'barrel';
+        g.add(cy(p.r, p.h, M.wood2, 16, 0, p.h / 2, 0));
+        for (const y of [0.5, p.h / 2, p.h - 0.5])
+            g.add(cy(p.r + 0.03, 0.12, M.metal, 16, 0, y, 0));
+        return g;
+    },
+    crate() {
+        const s = P.crate.s, g = new THREE.Group(); g.name = 'crate';
+        g.add(bx(s, s, s, M.wood, 0, s / 2, 0));
+        g.add(bx(s * 0.9, 0.1, 0.06, M.woodDk, 0, s / 2, s * 0.51));
+        return g;
+    },
+    shelf() {
+        const p = P.shelf, g = new THREE.Group(); g.name = 'shelf';
+        for (const s of [-1, 1])
+            g.add(bx(0.15, p.h, p.d, M.woodDk, s * (p.w / 2 - 0.075), p.h / 2, 0));
+        for (const y of [1.4, 3.5, 5.6])
+            g.add(bx(p.w, 0.12, p.d, M.wood2, 0, y, 0));
+        g.add(bx(p.w, p.h, 0.08, M.woodDk, 0, p.h / 2, -p.d * 0.46));
+        return g;
+    },
+    bottle() {
+        const p = P.bottle, g = new THREE.Group(); g.name = 'bottle';
+        g.add(cy(p.br, p.bh, M.glass, 10, 0, p.bh / 2, 0));
+        g.add(cy(p.nr, p.nh, M.glass, 8, 0, p.bh + p.nh / 2, 0));
+        return g;
+    },
+    mug() {
+        const p = P.mug, g = new THREE.Group(); g.name = 'mug';
+        g.add(cy(p.r, p.h, M.metal, 10, 0, p.h / 2, 0));
+        g.add(bx(0.05, 0.22, 0.12, M.metal, p.r + 0.03, p.h * 0.55, 0));
+        g.add(bx(0.05, 0.05, 0.12, M.metal, p.r - 0.01, p.h * 0.75, 0));
+        g.add(bx(0.05, 0.05, 0.12, M.metal, p.r - 0.01, p.h * 0.35, 0));
+        return g;
+    },
+    bottles3() {
+        const g = new THREE.Group();
+        const pos = [[-0.25, 0, -0.05], [0, 0, 0.08], [0.28, 0, -0.03]];
+        const scl = [[1, 1, 1], [0.95, 1.08, 0.95], [1.05, 0.92, 1.05]];
+        pos.forEach((p, i) => {
+            const b = this.bottle(); b.position.set(...p); b.scale.set(...scl[i]); g.add(b);
+        });
+        return g;
+    },
+    bottles4() {
+        const g = new THREE.Group();
+        const pos = [[-0.38, 0, -0.08], [-0.1, 0, 0.06], [0.15, 0, -0.04], [0.42, 0, 0.1]];
+        const scl = [[0.95, 1, 0.95], [1.05, 1.08, 1.05], [0.9, 0.92, 0.9], [1, 1.12, 1]];
+        pos.forEach((p, i) => {
+            const b = this.bottle(); b.position.set(...p); b.scale.set(...scl[i]); g.add(b);
+        });
+        return g;
+    }
+};
+
+// ══════════════════════════════════════════════════════════
+//  BUILD SHELL
+// ══════════════════════════════════════════════════════════
+function buildShell() {
+    const g = new THREE.Group(); g.name = 'shell';
+    const R = P.room, hw = R.w / 2, hd = R.d / 2;
+
+    g.add(bx(R.w, R.floor, R.d, M.ground, 0, R.floor / 2, 0));
+    g.add(bx(R.w, R.h, R.wall, M.wall, 0, R.h / 2, -hd));
+    g.add(bx(R.wall, R.h, R.d, M.wall, -hw, R.h / 2, 0));
+    g.add(bx(R.wall, R.h, R.d, M.wall, hw, R.h / 2, 0));
+
+    const D = P.door, sw = (R.w - D.w) / 2;
+    g.add(bx(sw, R.h, R.wall, M.wall, -(D.w / 2 + sw / 2), R.h / 2, hd));
+    g.add(bx(sw, R.h, R.wall, M.wall, D.w / 2 + sw / 2, R.h / 2, hd));
+    g.add(bx(D.w, R.h - D.h, R.wall, M.wall, 0, D.h + (R.h - D.h) / 2, hd));
+    g.add(bx(D.w, D.h, 0.6, M.dark, 0, D.h / 2, hd - 0.1));
+
+    // Swinging saloon doors
+    const dh = D.h * 0.5, dw = D.w * 0.44;
+    for (const s of [-1, 1]) {
+        g.add(bx(dw, dh, 0.12, M.woodDk, s * dw * 0.52, dh / 2 + 1.8, hd - 0.05));
+        for (const dy of [-dh * 0.28, 0, dh * 0.28])
+            g.add(bx(dw - 0.4, 0.12, 0.14, M.wood, s * dw * 0.52, dh / 2 + 1.8 + dy, hd + 0.02));
+    }
+
+    // Windows
+    const W = P.win;
+    for (const s of [-1, 1])
+        g.add(bx(W.w, W.h, 0.2, M.glass, s * 14, W.sill + W.h / 2, hd - 0.15));
+
+    // Beams
+    const B = P.beam, gap = R.w / (B.count + 1);
+    for (let i = 0; i < B.count; i++)
+        g.add(bx(B.w, B.h, R.d, M.woodDk, -hw + gap * (i + 1), R.h - 0.6, 0));
+
+    // Chandelier
+    g.add(bx(0.08, 2.5, 0.08, M.metal, 0, R.h - 1.25, 0));
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.08, 8, 20), M.metal);
+    ring.rotation.x = Math.PI / 2; ring.position.set(0, R.h - 2.6, 0);
+    ring.castShadow = true; g.add(ring);
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 2)
+        g.add(bx(0.12, 0.4, 0.12, M.white, Math.cos(a) * 1.5, R.h - 2.3, Math.sin(a) * 1.5));
+
+    // Stair corner
+    const ST = P.stair, sh = ST.h / ST.n, sd = ST.d / ST.n;
+    for (let i = 0; i < ST.n; i++)
+        g.add(bx(ST.w, sh, sd, M.wood, hw - ST.w / 2 - R.wall, sh * (i + 0.5), -hd + ST.d - sd * (i + 0.5)));
+
+    return g;
+}
+
+// ══════════════════════════════════════════════════════════
+//  BUILD MODEL
+// ══════════════════════════════════════════════════════════
+function buildModel(scene) {
+    const root = new THREE.Group(); root.name = 'tavern';
+    root.add(buildShell());
+
+    // Bar
+    const bar = F.bar(); bar.position.set(14.5, 0, 1); bar.rotation.y = Math.PI / 2; root.add(bar);
+
+    // Shelves
+    for (const z of [-3.5, 3.5]) {
+        const s = F.shelf(); s.position.set(17.8, 0, z); s.rotation.y = Math.PI / 2; root.add(s);
+    }
+
+    // Fireplace
+    const fp = F.fireplace(); fp.position.set(-12, 0, -13); root.add(fp);
+
+    // Tables
+    TABLES.forEach(([tx, tz], i) => {
+        const t = F.table(); t.name = 't' + (i + 1); t.position.set(tx, 0, tz); root.add(t);
+    });
+
+    // Chairs — atan2 facing toward table center
+    buildChairData().forEach(([cx, cz, ang], i) => {
+        const c = F.chair(); c.name = 'c' + (i + 1);
+        c.position.set(cx, 0, cz); c.rotation.y = ang; root.add(c);
+    });
+
+    // Stools
+    STOOL_Z.forEach((z, i) => {
+        const s = F.stool(); s.name = 's' + (i + 1);
+        s.position.set(11.5, 0, z); s.rotation.y = Math.PI / 2; root.add(s);
+    });
+
+    // Barrels
+    BARRELS.forEach(([x, z, ry, sy], i) => {
+        const b = F.barrel(); b.name = 'barrel_' + i;
+        b.position.set(x, 0, z); b.rotation.y = ry; b.scale.set(1, sy, 1); root.add(b);
+    });
+
+    // Crates
+    CRATES.forEach(([x, z, ry, yOff], i) => {
+        const c = F.crate(); c.name = 'crate_' + i;
+        c.position.set(x, yOff || 0, z); c.rotation.y = ry; root.add(c);
+    });
+
+    // Mugs
+    MUG_POS.forEach(([x, y, z], i) => {
+        const m = F.mug(); m.name = 'mug_' + i;
+        m.position.set(x, y, z); m.rotation.y = Math.random() * Math.PI * 2; root.add(m);
+    });
+
+    // Shelf bottles
+    [
+        [17.2, 1.52, -4.2, '3'], [17.2, 1.52, -2.8, '3'], [17.2, 3.62, -3.8, '4'], [17.2, 5.72, -3.2, '3'],
+        [17.2, 1.52, 2.8, '3'],  [17.2, 1.52, 4.2, '4'],  [17.2, 3.62, 3.5, '3'],  [17.2, 5.72, 3.8, '4']
+    ].forEach(([x, y, z, t]) => {
+        const cl = t === '3' ? F.bottles3() : F.bottles4();
+        cl.position.set(x, y, z); cl.rotation.y = Math.PI / 2; root.add(cl);
+    });
+
+    // Bar top bottles
+    [[14.5, 4.05, -2], [14.5, 4.05, 1.5], [14.5, 4.05, 5]].forEach(([x, y, z], i) => {
+        const cl = i % 2 === 0 ? F.bottles3() : F.bottles4();
+        cl.position.set(x, y, z); root.add(cl);
+    });
+
+    scene.add(root);
+    return root;
+}
+
+// ══════════════════════════════════════════════════════════
+//  SCENE
+// ══════════════════════════════════════════════════════════
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x19120e);
+scene.fog = new THREE.Fog(0x19120e, 55, 130);
+
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 300);
+camera.position.set(28, 20, 34);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+document.body.appendChild(renderer.domElement);
+
+initMats();
+
+// Lighting
+scene.add(new THREE.AmbientLight(0xffffff, 0.38));
+const fireLt = new THREE.PointLight(0xffa34a, 1.3, 80, 2);
+fireLt.position.set(-12, 4.5, -12); scene.add(fireLt);
+const chandLt = new THREE.PointLight(0xffcc88, 0.55, 50, 2);
+chandLt.position.set(0, 9, 0); scene.add(chandLt);
+const dirLt = new THREE.DirectionalLight(0xffffff, 0.5);
+dirLt.position.set(20, 28, 14); dirLt.castShadow = true;
+dirLt.shadow.mapSize.set(2048, 2048);
+dirLt.shadow.camera.left = -40; dirLt.shadow.camera.right = 40;
+dirLt.shadow.camera.top = 40; dirLt.shadow.camera.bottom = -40;
+dirLt.shadow.camera.near = 1; dirLt.shadow.camera.far = 120;
+scene.add(dirLt);
+const fillLt = new THREE.DirectionalLight(0x7799bb, 0.15);
+fillLt.position.set(-18, 10, -10); scene.add(fillLt);
+
+const grid = new THREE.GridHelper(60, 30, 0x5e4832, 0x2b2119);
+grid.position.y = 0.02; scene.add(grid);
+
+buildModel(scene);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 5, 0); controls.update();
+
+(function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); })();
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+</script>
+</body>
+</html>

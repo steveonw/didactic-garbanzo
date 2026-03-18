@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Washington Monument v1.0 — blockout massing</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { overflow: hidden; background: #15202b; }
+  canvas { display: block; }
+  #info {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    max-width: 360px;
+    color: #ddd;
+    background: rgba(0,0,0,0.55);
+    padding: 10px 12px;
+    border-radius: 8px;
+    font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<div id="info">
+  <strong>Washington Monument v1.0 — blockout massing</strong><br>
+  Drag to orbit · Scroll to zoom · Right-drag to pan<br>
+  Units: feet · Origin: monument center at ground level
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+THREE.OrbitControls = function(camera, domElement) {
+  this.camera = camera;
+  this.domElement = domElement;
+  this.target = new THREE.Vector3();
+  this.enableDamping = true;
+  this.dampingFactor = 0.08;
+  this.rotateSpeed = 0.9;
+  this.zoomSpeed = 1.1;
+  this.panSpeed = 0.7;
+
+  const scope = this;
+  const STATE = { NONE: -1, ROTATE: 0, PAN: 1 };
+  let state = STATE.NONE;
+  const spherical = new THREE.Spherical();
+  const sphericalDelta = new THREE.Spherical();
+  const panOffset = new THREE.Vector3();
+  let scale = 1;
+  const rotateStart = new THREE.Vector2();
+  const rotateEnd = new THREE.Vector2();
+  const panStart = new THREE.Vector2();
+  const panEnd = new THREE.Vector2();
+
+  function getZoomScale() { return Math.pow(0.95, scope.zoomSpeed); }
+  function rotateLeft(angle) { sphericalDelta.theta -= angle; }
+  function rotateUp(angle) { sphericalDelta.phi -= angle; }
+  function panLeft(distance, objectMatrix) {
+    const v = new THREE.Vector3();
+    v.setFromMatrixColumn(objectMatrix, 0);
+    v.multiplyScalar(-distance);
+    panOffset.add(v);
+  }
+  function panUp(distance, objectMatrix) {
+    const v = new THREE.Vector3();
+    v.setFromMatrixColumn(objectMatrix, 1);
+    v.multiplyScalar(distance);
+    panOffset.add(v);
+  }
+  function pan(deltaX, deltaY) {
+    const element = scope.domElement;
+    const offset = new THREE.Vector3();
+    offset.copy(scope.camera.position).sub(scope.target);
+    let targetDistance = offset.length();
+    targetDistance *= Math.tan((scope.camera.fov / 2) * Math.PI / 180.0);
+    panLeft(2 * deltaX * targetDistance / element.clientHeight, scope.camera.matrix);
+    panUp(2 * deltaY * targetDistance / element.clientHeight, scope.camera.matrix);
+  }
+
+  this.update = function() {
+    const offset = new THREE.Vector3();
+    const quat = new THREE.Quaternion().setFromUnitVectors(camera.up, new THREE.Vector3(0, 1, 0));
+    const quatInverse = quat.clone().invert();
+    offset.copy(camera.position).sub(scope.target);
+    offset.applyQuaternion(quat);
+    spherical.setFromVector3(offset);
+    spherical.theta += sphericalDelta.theta * (scope.enableDamping ? scope.dampingFactor : 1);
+    spherical.phi += sphericalDelta.phi * (scope.enableDamping ? scope.dampingFactor : 1);
+    spherical.phi = Math.max(0.01, Math.min(Math.PI - 0.01, spherical.phi));
+    spherical.radius *= scale;
+    spherical.radius = Math.max(10, Math.min(5000, spherical.radius));
+    scope.target.add(panOffset);
+    offset.setFromSpherical(spherical);
+    offset.applyQuaternion(quatInverse);
+    camera.position.copy(scope.target).add(offset);
+    camera.lookAt(scope.target);
+    sphericalDelta.theta *= scope.enableDamping ? (1 - scope.dampingFactor) : 0;
+    sphericalDelta.phi *= scope.enableDamping ? (1 - scope.dampingFactor) : 0;
+    panOffset.set(0, 0, 0);
+    scale = 1;
+  };
+
+  function onMouseDown(event) {
+    if (event.button === 0) { state = STATE.ROTATE; rotateStart.set(event.clientX, event.clientY); }
+    else if (event.button === 2) { state = STATE.PAN; panStart.set(event.clientX, event.clientY); }
+  }
+  function onMouseMove(event) {
+    if (state === STATE.ROTATE) {
+      rotateEnd.set(event.clientX, event.clientY);
+      const element = scope.domElement;
+      rotateLeft(2 * Math.PI * (rotateEnd.x - rotateStart.x) / element.clientWidth * scope.rotateSpeed);
+      rotateUp(2 * Math.PI * (rotateEnd.y - rotateStart.y) / element.clientHeight * scope.rotateSpeed);
+      rotateStart.copy(rotateEnd);
+    } else if (state === STATE.PAN) {
+      panEnd.set(event.clientX, event.clientY);
+      pan(panEnd.x - panStart.x, panEnd.y - panStart.y);
+      panStart.copy(panEnd);
+    }
+  }
+  function onMouseUp() { state = STATE.NONE; }
+  function onWheel(event) {
+    if (event.deltaY > 0) scale /= getZoomScale();
+    else scale *= getZoomScale();
+  }
+
+  domElement.addEventListener('mousedown', onMouseDown, false);
+  domElement.addEventListener('mousemove', onMouseMove, false);
+  domElement.addEventListener('mouseup', onMouseUp, false);
+  domElement.addEventListener('wheel', onWheel, { passive: true });
+  domElement.addEventListener('contextmenu', e => e.preventDefault(), false);
+};
+</script>
+
+<script>
+// Washington Monument v1.0 — blockout massing
+const PARAMS = {
+  unit: 'ft',
+  groundY: 0,
+
+  totalHeightHistoric: 555.4271,
+  shaftHeight: 500.0,
+  pyramidionHeight: 55.0,
+  shaftBaseWidth: 55.125,
+  shaftTopWidth: 34.4583,
+  wallThicknessBase: 15.0,
+  wallThicknessTop: 1.5,
+
+  visiblePlinthWidth: 70.0,
+  visiblePlinthHeight: 2.0,
+
+  windowBandY: 504.0,
+  windowCount: 8,
+  windowsPerFace: 2,
+  windowWidth: 3.0,
+  windowHeightEastFace: 2.0417,
+  windowHeightOtherFaces: 1.5,
+  windowPairCenterGap: 10.0,
+  windowInset: 0.55,
+  windowDepth: 1.2,
+
+  entryDoorWidth: 3.8333,
+  entryDoorHeight: 8.0,
+  entryInset: 0.75,
+  entryDepth: 1.5,
+
+  includeFlags: true,
+  flagCount: 50,
+  flagRingRadius: 130.0,
+  flagPoleHeight: 25.0,
+  flagPoleRadius: 0.18,
+  flagWidth: 5.0,
+  flagHeight: 3.2,
+  flagOffsetFromPole: 2.7,
+
+  groundRadius: 220.0,
+  groundThickness: 0.5,
+  grassRadius: 175.0,
+
+  cameraX: 220,
+  cameraY: 150,
+  cameraZ: 260,
+
+  mats: {
+    stone:   { color: 0xd3d1ca, roughness: 0.9, metalness: 0.02 },
+    shadow:  { color: 0xbab6ad, roughness: 1.0, metalness: 0.0 },
+    metal:   { color: 0x7b7f88, roughness: 0.35, metalness: 0.85 },
+    glass:   { color: 0x9eb8cc, roughness: 0.15, metalness: 0.0, transparent: true, opacity: 0.55 },
+    ground:  { color: 0x5d5e5a, roughness: 0.98, metalness: 0.0 },
+    grass:   { color: 0x526a48, roughness: 1.0, metalness: 0.0 },
+    accent:  { color: 0x952c2c, roughness: 0.75, metalness: 0.0 },
+    white:   { color: 0xf4f4f1, roughness: 0.85, metalness: 0.0 },
+    blue:    { color: 0x244a8f, roughness: 0.75, metalness: 0.0 }
+  }
+};
+
+const MATS = {};
+function initMaterials() {
+  for (const [k, v] of Object.entries(PARAMS.mats)) {
+    MATS[k] = new THREE.MeshStandardMaterial(v);
+  }
+  MATS.flagRed = MATS.accent;
+  MATS.flagWhite = MATS.white;
+  MATS.flagBlue = MATS.blue;
+}
+
+function buildModel(scene) {
+  const root = new THREE.Group();
+  root.name = 'washington_monument_root';
+
+  root.add(buildGround());
+  root.add(buildPlinth());
+  root.add(buildShaft());
+  root.add(buildPyramidion());
+  root.add(buildObservationWindows());
+  root.add(buildEntry());
+  if (PARAMS.includeFlags) root.add(buildFlagRing());
+
+  scene.add(root);
+  return root;
+}
+
+function buildGround() {
+  const g = new THREE.Group();
+  g.name = 'ground_group';
+
+  const disk = new THREE.Mesh(
+    new THREE.CylinderGeometry(PARAMS.groundRadius, PARAMS.groundRadius, PARAMS.groundThickness, 64),
+    MATS.ground
+  );
+  disk.name = 'ground_disk';
+  disk.position.y = PARAMS.groundY - PARAMS.groundThickness * 0.5;
+  disk.receiveShadow = true;
+  g.add(disk);
+
+  const lawn = new THREE.Mesh(
+    new THREE.CylinderGeometry(PARAMS.grassRadius, PARAMS.grassRadius, 0.08, 64),
+    MATS.grass
+  );
+  lawn.name = 'lawn_disk';
+  lawn.position.y = PARAMS.groundY + 0.04;
+  lawn.receiveShadow = true;
+  g.add(lawn);
+
+  return g;
+}
+
+function buildPlinth() {
+  const g = new THREE.Group();
+  g.name = 'plinth_group';
+
+  const geo = new THREE.BoxGeometry(PARAMS.visiblePlinthWidth, PARAMS.visiblePlinthHeight, PARAMS.visiblePlinthWidth);
+  const mesh = new THREE.Mesh(geo, MATS.stone);
+  mesh.name = 'visible_plinth';
+  mesh.position.y = PARAMS.groundY + PARAMS.visiblePlinthHeight * 0.5;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  g.add(mesh);
+
+  return g;
+}
+
+function makeTaperedPrismGeometry(bottomWidth, topWidth, height) {
+  const b = bottomWidth * 0.5;
+  const t = topWidth * 0.5;
+  const y0 = 0;
+  const y1 = height;
+  const positions = new Float32Array([
+    // front
+    -b, y0,  b,   b, y0,  b,   t, y1,  t,
+    -b, y0,  b,   t, y1,  t,  -t, y1,  t,
+    // right
+     b, y0,  b,   b, y0, -b,   t, y1, -t,
+     b, y0,  b,   t, y1, -t,   t, y1,  t,
+    // back
+     b, y0, -b,  -b, y0, -b,  -t, y1, -t,
+     b, y0, -b,  -t, y1, -t,   t, y1, -t,
+    // left
+    -b, y0, -b,  -b, y0,  b,  -t, y1,  t,
+    -b, y0, -b,  -t, y1,  t,  -t, y1, -t,
+    // bottom
+    -b, y0, -b,   b, y0, -b,   b, y0,  b,
+    -b, y0, -b,   b, y0,  b,  -b, y0,  b,
+    // top
+    -t, y1,  t,   t, y1,  t,   t, y1, -t,
+    -t, y1,  t,   t, y1, -t,  -t, y1, -t,
+  ]);
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function buildShaft() {
+  const g = new THREE.Group();
+  g.name = 'shaft_group';
+
+  const geo = makeTaperedPrismGeometry(PARAMS.shaftBaseWidth, PARAMS.shaftTopWidth, PARAMS.shaftHeight);
+  const mesh = new THREE.Mesh(geo, MATS.stone);
+  mesh.name = 'main_shaft';
+  mesh.position.y = PARAMS.visiblePlinthHeight;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  g.add(mesh);
+
+  return g;
+}
+
+function makeSquarePyramidGeometry(baseWidth, height) {
+  const h = baseWidth * 0.5;
+  const y0 = 0;
+  const y1 = height;
+  const positions = new Float32Array([
+    // faces
+    -h, y0,  h,   h, y0,  h,   0, y1, 0,
+     h, y0,  h,   h, y0, -h,   0, y1, 0,
+     h, y0, -h,  -h, y0, -h,   0, y1, 0,
+    -h, y0, -h,  -h, y0,  h,   0, y1, 0,
+    // base
+    -h, y0, -h,   h, y0, -h,   h, y0,  h,
+    -h, y0, -h,   h, y0,  h,  -h, y0,  h,
+  ]);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function buildPyramidion() {
+  const g = new THREE.Group();
+  g.name = 'pyramidion_group';
+
+  const geo = makeSquarePyramidGeometry(PARAMS.shaftTopWidth, PARAMS.pyramidionHeight);
+  const mesh = new THREE.Mesh(geo, MATS.stone);
+  mesh.name = 'pyramidion';
+  mesh.position.y = PARAMS.visiblePlinthHeight + PARAMS.shaftHeight;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  g.add(mesh);
+
+  return g;
+}
+
+function shaftHalfWidthAtY(worldY) {
+  const localY = THREE.MathUtils.clamp(worldY - PARAMS.visiblePlinthHeight, 0, PARAMS.shaftHeight);
+  const t = localY / PARAMS.shaftHeight;
+  const width = THREE.MathUtils.lerp(PARAMS.shaftBaseWidth, PARAMS.shaftTopWidth, t);
+  return width * 0.5;
+}
+
+function buildObservationWindows() {
+  const g = new THREE.Group();
+  g.name = 'windows_group';
+
+  const faces = [
+    { name: 'north', side: 'z', sign:  1, east: false },
+    { name: 'south', side: 'z', sign: -1, east: false },
+    { name: 'east',  side: 'x', sign:  1, east: true  },
+    { name: 'west',  side: 'x', sign: -1, east: false },
+  ];
+
+  const halfGap = PARAMS.windowPairCenterGap * 0.5;
+  const y = PARAMS.windowBandY;
+  const faceHalf = shaftHalfWidthAtY(y) - PARAMS.windowInset;
+
+  for (const face of faces) {
+    const winH = face.east ? PARAMS.windowHeightEastFace : PARAMS.windowHeightOtherFaces;
+    for (const dir of [-1, 1]) {
+      const geo = face.side === 'z'
+        ? new THREE.BoxGeometry(PARAMS.windowWidth, winH, PARAMS.windowDepth)
+        : new THREE.BoxGeometry(PARAMS.windowDepth, winH, PARAMS.windowWidth);
+      const mesh = new THREE.Mesh(geo, MATS.shadow);
+      mesh.name = `window_${face.name}_${dir < 0 ? 'left' : 'right'}`;
+      if (face.side === 'z') {
+        mesh.position.set(dir * halfGap, y, face.sign * faceHalf);
+      } else {
+        mesh.position.set(face.sign * faceHalf, y, dir * halfGap);
+      }
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      g.add(mesh);
+
+      const glassGeo = face.side === 'z'
+        ? new THREE.BoxGeometry(PARAMS.windowWidth * 0.82, winH * 0.82, PARAMS.windowDepth * 0.35)
+        : new THREE.BoxGeometry(PARAMS.windowDepth * 0.35, winH * 0.82, PARAMS.windowWidth * 0.82);
+      const glass = new THREE.Mesh(glassGeo, MATS.glass);
+      glass.name = `glass_${face.name}_${dir < 0 ? 'left' : 'right'}`;
+      glass.position.copy(mesh.position);
+      g.add(glass);
+    }
+  }
+
+  return g;
+}
+
+function buildEntry() {
+  const g = new THREE.Group();
+  g.name = 'entry_group';
+
+  const y = PARAMS.visiblePlinthHeight + PARAMS.entryDoorHeight * 0.5;
+  const faceHalf = shaftHalfWidthAtY(PARAMS.visiblePlinthHeight + 4.0) - PARAMS.entryInset;
+
+  const door = new THREE.Mesh(
+    new THREE.BoxGeometry(PARAMS.entryDoorWidth, PARAMS.entryDoorHeight, PARAMS.entryDepth),
+    MATS.shadow
+  );
+  door.name = 'entry_recess';
+  door.position.set(0, y, faceHalf);
+  door.castShadow = true;
+  door.receiveShadow = true;
+  g.add(door);
+
+  const frame = new THREE.Mesh(
+    new THREE.BoxGeometry(PARAMS.entryDoorWidth + 1.4, PARAMS.entryDoorHeight + 1.4, 0.5),
+    MATS.stone
+  );
+  frame.name = 'entry_frame';
+  frame.position.set(0, y, faceHalf + 0.35);
+  frame.castShadow = true;
+  frame.receiveShadow = true;
+  g.add(frame);
+
+  return g;
+}
+
+function buildFlagRing() {
+  const g = new THREE.Group();
+  g.name = 'flag_ring_group';
+
+  const poleGeo = new THREE.CylinderGeometry(PARAMS.flagPoleRadius, PARAMS.flagPoleRadius, PARAMS.flagPoleHeight, 10);
+  const poles = new THREE.InstancedMesh(poleGeo, MATS.metal, PARAMS.flagCount);
+  poles.name = 'flag_poles';
+  poles.castShadow = true;
+  poles.receiveShadow = true;
+
+  const dummy = new THREE.Object3D();
+  const angles = [];
+  for (let i = 0; i < PARAMS.flagCount; i++) {
+    const a = (i / PARAMS.flagCount) * Math.PI * 2;
+    const x = Math.cos(a) * PARAMS.flagRingRadius;
+    const z = Math.sin(a) * PARAMS.flagRingRadius;
+    dummy.position.set(x, PARAMS.flagPoleHeight * 0.5, z);
+    dummy.updateMatrix();
+    poles.setMatrixAt(i, dummy.matrix);
+    angles.push(a);
+  }
+  g.add(poles);
+
+  const stripeHeights = PARAMS.flagHeight / 13;
+  for (let i = 0; i < angles.length; i++) {
+    const a = angles[i];
+    const x = Math.cos(a) * PARAMS.flagRingRadius;
+    const z = Math.sin(a) * PARAMS.flagRingRadius;
+    const tangent = a + Math.PI * 0.5;
+    const flagGroup = new THREE.Group();
+    flagGroup.name = `flag_${i}`;
+    flagGroup.position.set(x, PARAMS.flagPoleHeight - PARAMS.flagHeight * 0.5 - 1.0, z);
+    flagGroup.rotation.y = tangent;
+
+    for (let s = 0; s < 13; s++) {
+      const stripe = new THREE.Mesh(
+        new THREE.PlaneGeometry(PARAMS.flagWidth, stripeHeights),
+        (s % 2 === 0) ? MATS.flagRed : MATS.flagWhite
+      );
+      stripe.position.set(PARAMS.flagOffsetFromPole, PARAMS.flagHeight * 0.5 - stripeHeights * (s + 0.5), 0);
+      stripe.rotation.y = Math.PI;
+      flagGroup.add(stripe);
+    }
+
+    const canton = new THREE.Mesh(
+      new THREE.PlaneGeometry(PARAMS.flagWidth * 0.4, PARAMS.flagHeight * 7 / 13),
+      MATS.flagBlue
+    );
+    canton.position.set(PARAMS.flagOffsetFromPole - PARAMS.flagWidth * 0.3, PARAMS.flagHeight * 0.5 - (PARAMS.flagHeight * 7 / 13) * 0.5, 0.01);
+    canton.rotation.y = Math.PI;
+    flagGroup.add(canton);
+
+    g.add(flagGroup);
+  }
+
+  return g;
+}
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x15202b);
+scene.fog = new THREE.Fog(0x15202b, 450, 1000);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 5000);
+camera.position.set(PARAMS.cameraX, PARAMS.cameraY, PARAMS.cameraZ);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+document.body.appendChild(renderer.domElement);
+
+initMaterials();
+
+const ambient = new THREE.AmbientLight(0xffffff, 0.58);
+scene.add(ambient);
+
+const sun = new THREE.DirectionalLight(0xffffff, 1.05);
+sun.position.set(220, 320, 180);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -300;
+sun.shadow.camera.right = 300;
+sun.shadow.camera.top = 300;
+sun.shadow.camera.bottom = -300;
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 900;
+scene.add(sun);
+
+const fill = new THREE.DirectionalLight(0x9bb8d4, 0.26);
+fill.position.set(-160, 120, -180);
+scene.add(fill);
+
+const grid = new THREE.GridHelper(500, 50, 0x4d5660, 0x30363d);
+grid.position.y = PARAMS.groundY + 0.05;
+scene.add(grid);
+
+const axes = new THREE.AxesHelper(40);
+scene.add(axes);
+
+const model = buildModel(scene);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 180, 0);
+controls.update();
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>

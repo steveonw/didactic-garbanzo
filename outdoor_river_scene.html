@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Outdoor River Scene</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { overflow: hidden; background: #87CEEB; }
+  canvas { display: block; }
+  #info {
+    position: fixed; top: 12px; left: 12px;
+    color: #aaa; font: 13px/1.4 monospace;
+    background: rgba(0,0,0,0.5); padding: 8px 12px;
+    border-radius: 6px; pointer-events: none;
+    max-width: 320px;
+  }
+</style>
+</head>
+<body>
+
+<div id="info">
+  <strong>Outdoor River Scene</strong><br>
+  Orbit: drag &middot; Zoom: scroll &middot; Pan: right-drag
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ── Inline OrbitControls (r128-compatible) ──────────────────
+// Minimal orbit controls to avoid external module import issues.
+THREE.OrbitControls = function(camera, domElement) {
+    this.camera = camera;
+    this.domElement = domElement;
+    this.target = new THREE.Vector3();
+    this.enableDamping = true;
+    this.dampingFactor = 0.08;
+    this.rotateSpeed = 0.8;
+    this.zoomSpeed = 1.2;
+    this.panSpeed = 0.6;
+
+    const scope = this;
+    const STATE = { NONE: -1, ROTATE: 0, ZOOM: 1, PAN: 2 };
+    let state = STATE.NONE;
+    const spherical = new THREE.Spherical();
+    const sphericalDelta = new THREE.Spherical();
+    const panOffset = new THREE.Vector3();
+    let scale = 1;
+    const rotateStart = new THREE.Vector2();
+    const rotateEnd = new THREE.Vector2();
+    const panStart = new THREE.Vector2();
+    const panEnd = new THREE.Vector2();
+
+    function getZoomScale() { return Math.pow(0.95, scope.zoomSpeed); }
+
+    function rotateLeft(angle) { sphericalDelta.theta -= angle; }
+    function rotateUp(angle) { sphericalDelta.phi -= angle; }
+
+    function panLeft(distance, objectMatrix) {
+        const v = new THREE.Vector3();
+        v.setFromMatrixColumn(objectMatrix, 0);
+        v.multiplyScalar(-distance);
+        panOffset.add(v);
+    }
+    function panUp(distance, objectMatrix) {
+        const v = new THREE.Vector3();
+        v.setFromMatrixColumn(objectMatrix, 1);
+        v.multiplyScalar(distance);
+        panOffset.add(v);
+    }
+    function pan(deltaX, deltaY) {
+        const element = scope.domElement;
+        const offset = new THREE.Vector3();
+        offset.copy(scope.camera.position).sub(scope.target);
+        let targetDistance = offset.length();
+        targetDistance *= Math.tan((scope.camera.fov / 2) * Math.PI / 180.0);
+        panLeft(2 * deltaX * targetDistance / element.clientHeight, scope.camera.matrix);
+        panUp(2 * deltaY * targetDistance / element.clientHeight, scope.camera.matrix);
+    }
+
+    this.update = function() {
+        const offset = new THREE.Vector3();
+        const quat = new THREE.Quaternion().setFromUnitVectors(
+            camera.up, new THREE.Vector3(0, 1, 0)
+        );
+        const quatInverse = quat.clone().invert();
+        offset.copy(camera.position).sub(scope.target);
+        offset.applyQuaternion(quat);
+        spherical.setFromVector3(offset);
+        spherical.theta += sphericalDelta.theta * (scope.enableDamping ? scope.dampingFactor : 1);
+        spherical.phi += sphericalDelta.phi * (scope.enableDamping ? scope.dampingFactor : 1);
+        spherical.phi = Math.max(0.01, Math.min(Math.PI - 0.01, spherical.phi));
+        spherical.radius *= scale;
+        spherical.radius = Math.max(0.1, Math.min(1000, spherical.radius));
+        scope.target.add(panOffset);
+        offset.setFromSpherical(spherical);
+        offset.applyQuaternion(quatInverse);
+        camera.position.copy(scope.target).add(offset);
+        camera.lookAt(scope.target);
+        sphericalDelta.theta *= scope.enableDamping ? (1 - scope.dampingFactor) : 0;
+        sphericalDelta.phi *= scope.enableDamping ? (1 - scope.dampingFactor) : 0;
+        panOffset.set(0, 0, 0);
+        scale = 1;
+    };
+
+    function onMouseDown(event) {
+        if (event.button === 0) { state = STATE.ROTATE; rotateStart.set(event.clientX, event.clientY); }
+        else if (event.button === 2) { state = STATE.PAN; panStart.set(event.clientX, event.clientY); }
+    }
+    function onMouseMove(event) {
+        if (state === STATE.ROTATE) {
+            rotateEnd.set(event.clientX, event.clientY);
+            const element = scope.domElement;
+            rotateLeft(2 * Math.PI * (rotateEnd.x - rotateStart.x) / element.clientWidth * scope.rotateSpeed);
+            rotateUp(2 * Math.PI * (rotateEnd.y - rotateStart.y) / element.clientHeight * scope.rotateSpeed);
+            rotateStart.copy(rotateEnd);
+        } else if (state === STATE.PAN) {
+            panEnd.set(event.clientX, event.clientY);
+            pan(panEnd.x - panStart.x, panEnd.y - panStart.y);
+            panStart.copy(panEnd);
+        }
+    }
+    function onMouseUp() { state = STATE.NONE; }
+    function onWheel(event) {
+        if (event.deltaY > 0) { scale /= getZoomScale(); }
+        else { scale *= getZoomScale(); }
+    }
+    domElement.addEventListener('mousedown', onMouseDown, false);
+    domElement.addEventListener('mousemove', onMouseMove, false);
+    domElement.addEventListener('mouseup', onMouseUp, false);
+    domElement.addEventListener('wheel', onWheel, { passive: true });
+    domElement.addEventListener('contextmenu', e => e.preventDefault(), false);
+};
+</script>
+
+<script>
+    // ══════════════════════════════════════════════════════════
+    //  PARAMETERS
+    // ══════════════════════════════════════════════════════════
+    // ── Central parameters ──────────────────────────────────
+    const PARAMS = {
+        unit: 'm',
+        groundY: 0,
+
+        // terrain
+        terrainSize: 80,
+        terrainSegments: 80,
+        hillScale: 3.5,
+        hillFreq: 0.06,
+
+        // river
+        riverWidth: 4.0,
+        riverDepthOffset: -0.3,
+        riverCurveAmplitude: 12,
+        riverCurveFreq: 0.07,
+
+        // trees (broadleaf design)
+        treeCount: 50,
+        trunkBaseRadius: 0.25,
+        trunkTopRadius: 0.12,
+        trunkHeight: 2.0,
+        trunkLeanMax: 0.15,          // slight random lean
+        branchCountMin: 3,
+        branchCountMax: 5,
+        branchLength: 1.8,
+        branchRadius: 0.07,
+        branchAngleMin: 0.5,         // radians from vertical (~30°)
+        branchAngleMax: 0.9,         // radians (~50°)
+        canopyClusterMin: 5,
+        canopyClusterMax: 8,
+        canopyClusterRadius: 0.7,
+        canopyClusterVariation: 0.3,
+        rootFlareCount: 5,
+        rootFlareLength: 0.5,
+        rootFlareRadius: 0.06,
+
+        // rocks
+        rockCount: 30,
+        rockMinScale: 0.3,
+        rockMaxScale: 1.0,
+
+        // sky
+        skyColor: 0x87CEEB,
+        fogNear: 40,
+        fogFar: 100,
+        sunColor: 0xFFF4D6,
+        ambientColor: 0x9EC5E8,
+    };
+
+    // ══════════════════════════════════════════════════════════
+    //  MATERIALS
+    // ══════════════════════════════════════════════════════════
+    const MATS = {
+        grass:     new THREE.MeshStandardMaterial({ color: 0x4a7c3f, roughness: 0.9 }),
+        grassDark: new THREE.MeshStandardMaterial({ color: 0x3a6630, roughness: 0.9 }),
+        water:     new THREE.MeshStandardMaterial({ color: 0x2E86AB, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.75 }),
+        trunk:     new THREE.MeshStandardMaterial({ color: 0x5C3A1E, roughness: 0.85 }),
+        canopy1:   new THREE.MeshStandardMaterial({ color: 0x2D6B2D, roughness: 0.8, flatShading: true }),
+        canopy2:   new THREE.MeshStandardMaterial({ color: 0x3A8B3A, roughness: 0.8, flatShading: true }),
+        canopy3:   new THREE.MeshStandardMaterial({ color: 0x228B22, roughness: 0.8, flatShading: true }),
+        rock:      new THREE.MeshStandardMaterial({ color: 0x7A7A7A, roughness: 0.95, flatShading: true }),
+        rockDark:  new THREE.MeshStandardMaterial({ color: 0x5A5A5A, roughness: 0.95, flatShading: true }),
+        dirt:      new THREE.MeshStandardMaterial({ color: 0x8B6E4B, roughness: 0.95 }),
+        sand:      new THREE.MeshStandardMaterial({ color: 0xC2B280, roughness: 0.9 }),
+    };
+    const canopyMats = [MATS.canopy1, MATS.canopy2, MATS.canopy3];
+
+    // ══════════════════════════════════════════════════════════
+    //  HELPERS
+    // ══════════════════════════════════════════════════════════
+    // Seeded random for reproducible layout
+    function seededRandom(seed) {
+        let s = seed;
+        return function() {
+            s = (s * 16807 + 0) % 2147483647;
+            return (s - 1) / 2147483646;
+        };
+    }
+    const rand = seededRandom(42);
+
+    // River center X at given Z
+    function riverCenterX(z) {
+        return Math.sin(z * PARAMS.riverCurveFreq) * PARAMS.riverCurveAmplitude;
+    }
+
+    // Terrain height at (x, z) — simple multi-octave noise approximation
+    function terrainHeight(x, z) {
+        const f = PARAMS.hillFreq;
+        let h = Math.sin(x * f * 0.7 + 1.3) * Math.cos(z * f * 0.9 + 0.7) * PARAMS.hillScale;
+        h += Math.sin(x * f * 1.4 + 3.1) * Math.cos(z * f * 1.1 + 2.2) * PARAMS.hillScale * 0.4;
+        h += Math.sin(x * f * 2.5 + 5.0) * Math.cos(z * f * 2.8 + 4.0) * PARAMS.hillScale * 0.15;
+
+        // Carve the river channel
+        const rcx = riverCenterX(z);
+        const distFromRiver = Math.abs(x - rcx);
+        const rw = PARAMS.riverWidth * 1.8;
+        if (distFromRiver < rw) {
+            const t = distFromRiver / rw;
+            const carve = (1 - t * t) * 2.5;
+            h -= carve;
+        }
+        return Math.max(h, PARAMS.riverDepthOffset - 0.1);
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  BUILD MODEL
+    // ══════════════════════════════════════════════════════════
+    function buildModel(scene) {
+        const g = new THREE.Group();
+        g.name = 'outdoor_scene';
+
+        buildTerrain(g);
+        buildRiver(g);
+        buildTrees(g);
+        buildRocks(g);
+        buildFlowers(g);
+
+        scene.add(g);
+        return g;
+    }
+
+    // ── Terrain ──────────────────────────────────────────────
+    function buildTerrain(parent) {
+        const size = PARAMS.terrainSize;
+        const segs = PARAMS.terrainSegments;
+        const geo = new THREE.PlaneGeometry(size, size, segs, segs);
+        geo.rotateX(-Math.PI / 2);
+
+        const pos = geo.attributes.position;
+        const colors = new Float32Array(pos.count * 3);
+
+        for (let i = 0; i < pos.count; i++) {
+            const x = pos.getX(i);
+            const z = pos.getZ(i);
+            const y = terrainHeight(x, z);
+            pos.setY(i, y);
+
+            // Color based on height and river proximity
+            const rcx = riverCenterX(z);
+            const dist = Math.abs(x - rcx);
+            let r, gr, b;
+            if (dist < PARAMS.riverWidth * 1.2) {
+                // Sandy bank near river
+                r = 0.76; gr = 0.70; b = 0.50;
+            } else if (y > 2.0) {
+                // Higher ground — darker green
+                r = 0.22; gr = 0.40; b = 0.18;
+            } else {
+                // Regular grass
+                r = 0.29; gr = 0.49; b = 0.25;
+            }
+            // Add slight variation
+            const v = (rand() - 0.5) * 0.06;
+            colors[i * 3] = r + v;
+            colors[i * 3 + 1] = gr + v;
+            colors[i * 3 + 2] = b + v;
+        }
+
+        geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        geo.computeVertexNormals();
+
+        const mat = new THREE.MeshStandardMaterial({
+            vertexColors: true,
+            roughness: 0.9,
+        });
+
+        const terrain = new THREE.Mesh(geo, mat);
+        terrain.name = 'terrain';
+        terrain.receiveShadow = true;
+        parent.add(terrain);
+    }
+
+    // ── River ────────────────────────────────────────────────
+    function buildRiver(parent) {
+        const riverGroup = new THREE.Group();
+        riverGroup.name = 'river';
+
+        // Build river as a ribbon following the curve
+        const steps = 100;
+        const halfSize = PARAMS.terrainSize / 2;
+        const shape = new THREE.Shape();
+        const hw = PARAMS.riverWidth / 2;
+
+        // Create vertices for a custom geometry
+        const positions = [];
+        const indices = [];
+
+        for (let i = 0; i <= steps; i++) {
+            const z = -halfSize + (i / steps) * PARAMS.terrainSize;
+            const cx = riverCenterX(z);
+
+            positions.push(cx - hw, PARAMS.riverDepthOffset, z);
+            positions.push(cx + hw, PARAMS.riverDepthOffset, z);
+        }
+
+        for (let i = 0; i < steps; i++) {
+            const a = i * 2;
+            const b = i * 2 + 1;
+            const c = (i + 1) * 2;
+            const d = (i + 1) * 2 + 1;
+            indices.push(a, c, b);
+            indices.push(b, c, d);
+        }
+
+        const riverGeo = new THREE.BufferGeometry();
+        riverGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        riverGeo.setIndex(indices);
+        riverGeo.computeVertexNormals();
+
+        const riverMesh = new THREE.Mesh(riverGeo, MATS.water);
+        riverMesh.name = 'river_surface';
+        riverGroup.add(riverMesh);
+
+        parent.add(riverGroup);
+    }
+
+    // ── Trees (broadleaf — root flare, trunk, branches, canopy clusters) ──
+    function buildTree(x, z, scale) {
+        const tree = new THREE.Group();
+        tree.name = 'tree_broadleaf';
+        const baseY = terrainHeight(x, z);
+        tree.position.set(x, baseY, z);
+
+        const P = PARAMS;
+        const s = scale;
+
+        // ── Root flare ──
+        const rootGroup = new THREE.Group();
+        rootGroup.name = 'root_flare';
+        const rootCount = P.rootFlareCount;
+        for (let i = 0; i < rootCount; i++) {
+            const angle = (i / rootCount) * Math.PI * 2 + rand() * 0.4;
+            const rLen = P.rootFlareLength * s * (0.8 + rand() * 0.4);
+            const rGeo = new THREE.CylinderGeometry(
+                P.rootFlareRadius * s * 0.4,
+                P.rootFlareRadius * s,
+                rLen, 5
+            );
+            const root = new THREE.Mesh(rGeo, MATS.trunk);
+            // Tilt outward from trunk base
+            root.rotation.z = -Math.cos(angle) * 1.1;
+            root.rotation.x = -Math.sin(angle) * 1.1;
+            root.position.set(
+                Math.cos(angle) * rLen * 0.4,
+                rLen * 0.15,
+                Math.sin(angle) * rLen * 0.4
+            );
+            root.castShadow = true;
+            rootGroup.add(root);
+        }
+        tree.add(rootGroup);
+
+        // ── Trunk (tapered cylinder, slight lean) ──
+        const th = P.trunkHeight * s;
+        const trunkGeo = new THREE.CylinderGeometry(
+            P.trunkTopRadius * s,
+            P.trunkBaseRadius * s,
+            th, 7
+        );
+        const trunk = new THREE.Mesh(trunkGeo, MATS.trunk);
+        trunk.position.y = th / 2;
+        // Slight random lean
+        trunk.rotation.x = (rand() - 0.5) * P.trunkLeanMax;
+        trunk.rotation.z = (rand() - 0.5) * P.trunkLeanMax;
+        trunk.castShadow = true;
+        tree.add(trunk);
+
+        // ── Primary branches + canopy clusters ──
+        const branchCount = P.branchCountMin + Math.floor(rand() * (P.branchCountMax - P.branchCountMin + 1));
+        const branchGroup = new THREE.Group();
+        branchGroup.name = 'branches';
+        branchGroup.position.y = th * 0.85; // branches fork near top of trunk
+
+        const canopyGroup = new THREE.Group();
+        canopyGroup.name = 'canopy';
+
+        for (let i = 0; i < branchCount; i++) {
+            const yawAngle = (i / branchCount) * Math.PI * 2 + (rand() - 0.5) * 0.6;
+            const pitchAngle = P.branchAngleMin + rand() * (P.branchAngleMax - P.branchAngleMin);
+            const bLen = P.branchLength * s * (0.7 + rand() * 0.6);
+
+            // Branch cylinder
+            const bGeo = new THREE.CylinderGeometry(
+                P.branchRadius * s * 0.5,
+                P.branchRadius * s,
+                bLen, 5
+            );
+            const branch = new THREE.Mesh(bGeo, MATS.trunk);
+
+            // Position: halfway along the branch direction
+            const dirX = Math.sin(pitchAngle) * Math.cos(yawAngle);
+            const dirY = Math.cos(pitchAngle);
+            const dirZ = Math.sin(pitchAngle) * Math.sin(yawAngle);
+
+            branch.position.set(
+                dirX * bLen * 0.5,
+                dirY * bLen * 0.5 + th * 0.85,
+                dirZ * bLen * 0.5
+            );
+
+            // Orient branch along its direction
+            const up = new THREE.Vector3(0, 1, 0);
+            const dir = new THREE.Vector3(dirX, dirY, dirZ).normalize();
+            const quat = new THREE.Quaternion().setFromUnitVectors(up, dir);
+            branch.setRotationFromQuaternion(quat);
+            branch.castShadow = true;
+            branchGroup.add(branch);
+
+            // ── Canopy cluster at branch tip ──
+            const tipX = dirX * bLen;
+            const tipY = dirY * bLen + th * 0.85;
+            const tipZ = dirZ * bLen;
+
+            const clusterCount = 1 + Math.floor(rand() * 2); // 1-2 clusters per branch
+            for (let c = 0; c < clusterCount; c++) {
+                const cr = P.canopyClusterRadius * s * (0.7 + rand() * P.canopyClusterVariation);
+                const cGeo = new THREE.IcosahedronGeometry(cr, 1);
+
+                // Distort vertices for organic lumpiness
+                const cPos = cGeo.attributes.position;
+                for (let v = 0; v < cPos.count; v++) {
+                    const nx = cPos.getX(v) * (0.8 + rand() * 0.4);
+                    const ny = cPos.getY(v) * (0.7 + rand() * 0.5);
+                    const nz = cPos.getZ(v) * (0.8 + rand() * 0.4);
+                    cPos.setXYZ(v, nx, ny, nz);
+                }
+                cGeo.computeVertexNormals();
+
+                const mat = canopyMats[Math.floor(rand() * canopyMats.length)];
+                const cluster = new THREE.Mesh(cGeo, mat);
+                cluster.position.set(
+                    tipX + (rand() - 0.5) * cr * 0.6,
+                    tipY + (rand() - 0.3) * cr * 0.5,
+                    tipZ + (rand() - 0.5) * cr * 0.6
+                );
+                cluster.rotation.set(rand() * Math.PI, rand() * Math.PI, 0);
+                cluster.castShadow = true;
+                canopyGroup.add(cluster);
+            }
+
+            // ── Secondary branch (small fork off primary) ──
+            if (rand() > 0.4) {
+                const sLen = bLen * 0.45;
+                const sGeo = new THREE.CylinderGeometry(
+                    P.branchRadius * s * 0.25,
+                    P.branchRadius * s * 0.5,
+                    sLen, 4
+                );
+                const sBranch = new THREE.Mesh(sGeo, MATS.trunk);
+                const sMidX = dirX * bLen * 0.55;
+                const sMidY = dirY * bLen * 0.55 + th * 0.85;
+                const sMidZ = dirZ * bLen * 0.55;
+
+                const sYaw = yawAngle + (rand() - 0.5) * 1.2;
+                const sPitch = pitchAngle + (rand() - 0.5) * 0.4;
+                const sdX = Math.sin(sPitch) * Math.cos(sYaw);
+                const sdY = Math.cos(sPitch);
+                const sdZ = Math.sin(sPitch) * Math.sin(sYaw);
+
+                sBranch.position.set(
+                    sMidX + sdX * sLen * 0.5,
+                    sMidY + sdY * sLen * 0.5,
+                    sMidZ + sdZ * sLen * 0.5
+                );
+                const sDir = new THREE.Vector3(sdX, sdY, sdZ).normalize();
+                const sQuat = new THREE.Quaternion().setFromUnitVectors(up, sDir);
+                sBranch.setRotationFromQuaternion(sQuat);
+                sBranch.castShadow = true;
+                branchGroup.add(sBranch);
+
+                // Small canopy at secondary tip
+                const scr = P.canopyClusterRadius * s * (0.4 + rand() * 0.3);
+                const scGeo = new THREE.IcosahedronGeometry(scr, 0);
+                const scMat = canopyMats[Math.floor(rand() * canopyMats.length)];
+                const sCluster = new THREE.Mesh(scGeo, scMat);
+                sCluster.position.set(
+                    sMidX + sdX * sLen,
+                    sMidY + sdY * sLen,
+                    sMidZ + sdZ * sLen
+                );
+                sCluster.castShadow = true;
+                canopyGroup.add(sCluster);
+            }
+        }
+
+        // ── Top canopy cluster (crown of tree) ──
+        const topCr = P.canopyClusterRadius * s * (0.9 + rand() * 0.3);
+        const topGeo = new THREE.IcosahedronGeometry(topCr, 1);
+        const topPos = topGeo.attributes.position;
+        for (let v = 0; v < topPos.count; v++) {
+            topPos.setXYZ(v,
+                topPos.getX(v) * (0.85 + rand() * 0.3),
+                topPos.getY(v) * (0.75 + rand() * 0.4),
+                topPos.getZ(v) * (0.85 + rand() * 0.3)
+            );
+        }
+        topGeo.computeVertexNormals();
+        const topCluster = new THREE.Mesh(topGeo, canopyMats[Math.floor(rand() * 3)]);
+        topCluster.position.y = th + topCr * 0.5;
+        topCluster.castShadow = true;
+        canopyGroup.add(topCluster);
+
+        tree.add(branchGroup);
+        tree.add(canopyGroup);
+        return tree;
+    }
+
+    function buildTrees(parent) {
+        const treeGroup = new THREE.Group();
+        treeGroup.name = 'trees';
+
+        const halfSize = PARAMS.terrainSize / 2 - 3;
+        let placed = 0;
+        let attempts = 0;
+
+        while (placed < PARAMS.treeCount && attempts < 500) {
+            attempts++;
+            const x = (rand() - 0.5) * halfSize * 2;
+            const z = (rand() - 0.5) * halfSize * 2;
+
+            // Don't place in the river
+            const dist = Math.abs(x - riverCenterX(z));
+            if (dist < PARAMS.riverWidth * 2.0) continue;
+
+            const scale = 0.6 + rand() * 0.8;
+            treeGroup.add(buildTree(x, z, scale));
+            placed++;
+        }
+
+        parent.add(treeGroup);
+    }
+
+    // ── Rocks ────────────────────────────────────────────────
+    function buildRocks(parent) {
+        const rockGroup = new THREE.Group();
+        rockGroup.name = 'rocks';
+
+        const halfSize = PARAMS.terrainSize / 2 - 5;
+
+        for (let i = 0; i < PARAMS.rockCount; i++) {
+            const x = (rand() - 0.5) * halfSize * 2;
+            const z = (rand() - 0.5) * halfSize * 2;
+            const scale = PARAMS.rockMinScale + rand() * (PARAMS.rockMaxScale - PARAMS.rockMinScale);
+
+            // Prefer placing some rocks near the river
+            const nearRiver = rand() < 0.4;
+            let rx = x, rz = z;
+            if (nearRiver) {
+                rz = (rand() - 0.5) * halfSize * 2;
+                rx = riverCenterX(rz) + (rand() - 0.5) * PARAMS.riverWidth * 3;
+            }
+
+            const geo = new THREE.DodecahedronGeometry(scale, 0);
+            // Squash and distort slightly
+            const posAttr = geo.attributes.position;
+            for (let j = 0; j < posAttr.count; j++) {
+                posAttr.setY(j, posAttr.getY(j) * (0.4 + rand() * 0.3));
+                posAttr.setX(j, posAttr.getX(j) * (0.8 + rand() * 0.4));
+                posAttr.setZ(j, posAttr.getZ(j) * (0.8 + rand() * 0.4));
+            }
+            geo.computeVertexNormals();
+
+            const mat = rand() > 0.5 ? MATS.rock : MATS.rockDark;
+            const rock = new THREE.Mesh(geo, mat);
+            const baseY = terrainHeight(rx, rz);
+            rock.position.set(rx, baseY + scale * 0.2, rz);
+            rock.rotation.set(rand() * 0.5, rand() * Math.PI * 2, rand() * 0.3);
+            rock.castShadow = true;
+            rock.receiveShadow = true;
+            rockGroup.add(rock);
+        }
+
+        parent.add(rockGroup);
+    }
+
+    // ── Flowers / grass tufts ────────────────────────────────
+    function buildFlowers(parent) {
+        const flowerGroup = new THREE.Group();
+        flowerGroup.name = 'flowers';
+
+        const flowerColors = [0xFFD700, 0xFF6B6B, 0xE8DAEF, 0xFF9F43, 0xFFFFFF];
+        const halfSize = PARAMS.terrainSize / 2 - 5;
+
+        for (let i = 0; i < 40; i++) {
+            const x = (rand() - 0.5) * halfSize * 2;
+            const z = (rand() - 0.5) * halfSize * 2;
+
+            // Don't place in river
+            if (Math.abs(x - riverCenterX(z)) < PARAMS.riverWidth * 1.5) continue;
+
+            const baseY = terrainHeight(x, z);
+            if (baseY < 0) continue;
+
+            const color = flowerColors[Math.floor(rand() * flowerColors.length)];
+            const stemGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.4, 4);
+            const stemMat = new THREE.MeshStandardMaterial({ color: 0x2E7D32 });
+            const stem = new THREE.Mesh(stemGeo, stemMat);
+            stem.position.set(x, baseY + 0.2, z);
+
+            const petalGeo = new THREE.SphereGeometry(0.1, 5, 4);
+            const petalMat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.6 });
+            const petal = new THREE.Mesh(petalGeo, petalMat);
+            petal.position.set(x, baseY + 0.45, z);
+
+            flowerGroup.add(stem);
+            flowerGroup.add(petal);
+        }
+
+        parent.add(flowerGroup);
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  SCENE SETUP (usually no need to edit below)
+    // ══════════════════════════════════════════════════════════
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(PARAMS.skyColor);
+    scene.fog = new THREE.Fog(PARAMS.skyColor, PARAMS.fogNear, PARAMS.fogFar);
+
+    const camera = new THREE.PerspectiveCamera(
+        50, window.innerWidth / window.innerHeight, 0.1, 500
+    );
+    camera.position.set(18, 14, 25);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    document.body.appendChild(renderer.domElement);
+
+    // Lighting — warm sunlight
+    const ambient = new THREE.AmbientLight(PARAMS.ambientColor, 0.5);
+    scene.add(ambient);
+
+    const hemiLight = new THREE.HemisphereLight(0x87CEEB, 0x3a6630, 0.4);
+    scene.add(hemiLight);
+
+    const dirLight = new THREE.DirectionalLight(PARAMS.sunColor, 1.0);
+    dirLight.position.set(25, 35, 20);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.set(2048, 2048);
+    dirLight.shadow.camera.near = 0.5;
+    dirLight.shadow.camera.far = 120;
+    dirLight.shadow.camera.left = -40;
+    dirLight.shadow.camera.right = 40;
+    dirLight.shadow.camera.top = 40;
+    dirLight.shadow.camera.bottom = -40;
+    scene.add(dirLight);
+
+    const fillLight = new THREE.DirectionalLight(0x8899bb, 0.25);
+    fillLight.position.set(-15, 10, -15);
+    scene.add(fillLight);
+
+    // No grid/axes for scenic view
+
+    // Build
+    const model = buildModel(scene);
+
+    // Controls
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.target.set(0, 1.0, 0);
+
+    // Render loop
+    const clock = new THREE.Clock();
+    function animate() {
+        requestAnimationFrame(animate);
+        const t = clock.getElapsedTime();
+        controls.update();
+
+        // Animate water opacity/color for shimmer
+        MATS.water.opacity = 0.7 + Math.sin(t * 1.5) * 0.05;
+
+        renderer.render(scene, camera);
+    }
+    animate();
+
+    // Resize
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+</script>
+</body>
+</html>
