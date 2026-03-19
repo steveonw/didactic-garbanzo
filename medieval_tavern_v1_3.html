@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Medieval Tavern v1.0</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { overflow: hidden; background: #1a1410; }
+  canvas { display: block; }
+  #info {
+    position: fixed; top: 12px; left: 12px;
+    color: #ccc; font: 13px/1.4 monospace;
+    background: rgba(0,0,0,0.6); padding: 8px 12px;
+    border-radius: 6px; pointer-events: none;
+    max-width: 320px;
+  }
+</style>
+</head>
+<body>
+
+<div id="info">
+  <strong>Medieval Tavern v1.0</strong><br>
+  Orbit: drag · Zoom: scroll · Pan: right-drag
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// Medieval Tavern v1.1 — props & detail pass
+// Room: 10m(X) × 3.2m(Y) × 7m(Z), origin at floor center
+// X = width, Y = height, Z = depth
+
+// ══════════════════════════════════════════════════════════
+//  PARAMETERS
+// ══════════════════════════════════════════════════════════
+const P = {
+    // Room shell
+    roomW: 10, roomH: 3.2, roomD: 7,
+    wallT: 0.3, floorT: 0.15,
+
+    // Bar (left wall zone)
+    barX: -3.6, barLength: 4.5, barDepth: 0.6, barH: 1.05,
+    barTopOverhang: 0.05, barTopT: 0.08,
+    barShelvesX: -4.85, shelfW: 0.25, shelfD: 3.8,
+    barStoolCount: 3,
+    stoolSeatH: 0.68, stoolR: 0.15, stoolLegR: 0.025,
+
+    // Fireplace (back wall, center-right)
+    fpX: 2.0, fpZ: 3.25,
+    fpOpenW: 1.2, fpOpenH: 1.0,
+    fpColW: 0.3, fpSurroundH: 1.2, fpSurroundD: 0.5,
+    fpMantelW: 2.2, fpMantelT: 0.15, fpMantelD: 0.55,
+    fpChimneyW: 1.6, fpChimneyD: 0.5,
+
+    // Tables
+    tableW: 1.4, tableD: 0.8, tableTopT: 0.05, tableH: 0.75,
+    tableLegW: 0.08, tableLegD: 0.6, stretcherH: 0.06,
+    // Table positions [x, z]
+    tablePos: [[2.0, 1.5], [0.0, 0.0], [2.5, -1.0], [-0.5, -2.2]],
+
+    // Benches
+    benchW: 1.2, benchD: 0.28, benchT: 0.05, benchH: 0.45,
+    benchLegW: 0.06, benchGap: 0.15, // gap from table edge
+
+    // Beams (side-to-side along X, spaced along Z)
+    beamCount: 5, beamW: 10.0, beamCrossW: 0.22, beamCrossH: 0.28,
+
+    // Barrels
+    barrelR: 0.275, barrelH: 0.85,
+    // Back-left alcove barrels
+    alcoveBarrels: [
+        { x: -4.0, z: 2.6, standing: true },
+        { x: -3.4, z: 2.9, standing: true },
+        { x: -3.7, z: 2.2, standing: false, rotZ: 0.3 },
+        { x: -4.2, z: 2.9, standing: false, rotZ: -0.2 },
+    ],
+    // Front-right corner barrels
+    cornerBarrels: [
+        { x: 4.1, z: -2.8, standing: true },
+        { x: 3.5, z: -3.0, standing: false, rotZ: 0.4 },
+    ],
+
+    // Door (front wall, left side)
+    doorX: -3.5, doorW: 1.2, doorH: 2.0, doorArchR: 0.55,
+
+    // Chandelier
+    chandX: 0.2, chandZ: -0.2, chandY: 2.5,
+    chandRingR: 0.4, chandCandleCount: 6,
+
+    // Wall decor
+    swordLength: 0.9, swordW: 0.06,
+    shieldR: 0.3, shieldDepth: 0.06,
+    // Bottles (bar shelves)
+    bottleCount: 8,
+    // Plates per table
+    plateR: 0.1, plateT: 0.015,
+
+    // Torches
+    torchPositions: [
+        { x: -4.99, z: -1.5, rotY: Math.PI / 2 },
+        { x: -4.99, z: 1.8, rotY: Math.PI / 2 },
+        { x: 4.99, z: 0.0, rotY: -Math.PI / 2 },
+        { x: 0.0, z: 3.49, rotY: Math.PI },
+    ],
+};
+
+// ══════════════════════════════════════════════════════════
+//  MATERIALS (6 zones — no adjacent surfaces share same)
+// ══════════════════════════════════════════════════════════
+const matStone = new THREE.MeshStandardMaterial({ color: 0xc4b8a8, roughness: 0.85, side: THREE.DoubleSide });
+const matStructWood = new THREE.MeshStandardMaterial({ color: 0x5c3a1e, roughness: 0.80 });
+const matFurnWood = new THREE.MeshStandardMaterial({ color: 0x8b6914, roughness: 0.70 });
+const matFloor = new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.85 });
+const matMetal = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.45, metalness: 0.8 });
+const matFireGlow = new THREE.MeshStandardMaterial({ color: 0x331100, emissive: 0xff6633, emissiveIntensity: 1.5 });
+const matBarrelWood = new THREE.MeshStandardMaterial({ color: 0x7a5c2e, roughness: 0.75 });
+const matPlaster = new THREE.MeshStandardMaterial({ color: 0xd4c5a9, roughness: 0.90, side: THREE.DoubleSide });
+const matGlass = new THREE.MeshStandardMaterial({ color: 0x2a4a2a, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.7 });
+const matCeramic = new THREE.MeshStandardMaterial({ color: 0xc9b89d, roughness: 0.6 });
+const matLeather = new THREE.MeshStandardMaterial({ color: 0x5a3a1a, roughness: 0.9 });
+const matBlade = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, roughness: 0.2, metalness: 0.95 });
+
+// ══════════════════════════════════════════════════════════
+//  HELPER: shadow defaults
+// ══════════════════════════════════════════════════════════
+function shad(mesh) {
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+}
+
+function box(w, h, d, mat) {
+    return shad(new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat));
+}
+
+function cyl(rTop, rBot, h, seg, mat) {
+    return shad(new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, h, seg), mat));
+}
+
+// ══════════════════════════════════════════════════════════
+//  BUILD: Room Shell
+// ══════════════════════════════════════════════════════════
+function buildRoom(g) {
+    const hw = P.roomW / 2, hd = P.roomD / 2;
+
+    // Floor
+    const floor = box(P.roomW, P.floorT, P.roomD, matFloor);
+    floor.position.y = P.floorT / 2;
+    floor.name = 'floor';
+    g.add(floor);
+
+    // Back wall (Z = +hd)
+    const backWall = box(P.roomW, P.roomH, P.wallT, matStone);
+    backWall.position.set(0, P.roomH / 2, hd + P.wallT / 2);
+    backWall.name = 'wall_back';
+    g.add(backWall);
+
+    // Front wall (Z = -hd) — with door hole done via two panels
+    const frontDoorLeft = P.doorX - P.doorW / 2;
+    const frontDoorRight = P.doorX + P.doorW / 2;
+
+    // Left panel of front wall
+    const fwLeftW = frontDoorLeft + hw;
+    if (fwLeftW > 0.1) {
+        const fwL = box(fwLeftW, P.roomH, P.wallT, matStone);
+        fwL.position.set(-hw + fwLeftW / 2, P.roomH / 2, -hd - P.wallT / 2);
+        fwL.name = 'wall_front_left';
+        g.add(fwL);
+    }
+
+    // Right panel of front wall
+    const fwRightW = hw - frontDoorRight;
+    if (fwRightW > 0.1) {
+        const fwR = box(fwRightW, P.roomH, P.wallT, matStone);
+        fwR.position.set(frontDoorRight + fwRightW / 2, P.roomH / 2, -hd - P.wallT / 2);
+        fwR.name = 'wall_front_right';
+        g.add(fwR);
+    }
+
+    // Above door
+    const aboveDoorH = P.roomH - P.doorH;
+    const aboveDoor = box(P.doorW, aboveDoorH, P.wallT, matStone);
+    aboveDoor.position.set(P.doorX, P.doorH + aboveDoorH / 2, -hd - P.wallT / 2);
+    aboveDoor.name = 'wall_front_above_door';
+    g.add(aboveDoor);
+
+    // Left wall (X = -hw)
+    const leftWall = box(P.wallT, P.roomH, P.roomD, matStone);
+    leftWall.position.set(-hw - P.wallT / 2, P.roomH / 2, 0);
+    leftWall.name = 'wall_left';
+    g.add(leftWall);
+
+    // Right wall (X = +hw)
+    const rightWall = box(P.wallT, P.roomH, P.roomD, matStone);
+    rightWall.position.set(hw + P.wallT / 2, P.roomH / 2, 0);
+    rightWall.name = 'wall_right';
+    g.add(rightWall);
+
+    // Ceiling
+    const ceiling = box(P.roomW, P.floorT, P.roomD, matPlaster);
+    ceiling.position.y = P.roomH + P.floorT / 2;
+    ceiling.name = 'ceiling';
+    g.add(ceiling);
+}
+
+// ══════════════════════════════════════════════════════════
+//  BUILD: Ceiling Beams
+// ══════════════════════════════════════════════════════════
+function buildBeams(g) {
+    const spacing = P.roomD / (P.beamCount + 1);
+    const startZ = -P.roomD / 2 + spacing;
+    const beamY = P.roomH - P.beamCrossH / 2;
+
+    for (let i = 0; i < P.beamCount; i++) {
+        const beam = box(P.beamW, P.beamCrossH, P.beamCrossW, matStructWood);
+        beam.position.set(0, beamY, startZ + i * spacing);
+        beam.name = `beam_${i}`;
+        g.add(beam);
+    }
+}
+
+// ══════════════════════════════════════════════════════════
+//  BUILD: Fireplace (hero)
+// ══════════════════════════════════════════════════════════
+function buildFireplace(g) {
+    const fpG = new THREE.Group();
+    fpG.name = 'fireplace';
+
+    // Hearth floor slab
+    const hearth = box(P.fpMantelW, 0.1, P.fpSurroundD + 0.3, matStone);
+    hearth.position.y = 0.05;
+    fpG.add(hearth);
+
+    // Left column
+    const colL = box(P.fpColW, P.fpSurroundH, P.fpSurroundD, matStone);
+    colL.position.set(-(P.fpOpenW / 2 + P.fpColW / 2), P.fpSurroundH / 2, 0);
+    fpG.add(colL);
+
+    // Right column
+    const colR = box(P.fpColW, P.fpSurroundH, P.fpSurroundD, matStone);
+    colR.position.set(P.fpOpenW / 2 + P.fpColW / 2, P.fpSurroundH / 2, 0);
+    fpG.add(colR);
+
+    // Back panel (inside)
+    const backP = box(P.fpOpenW, P.fpOpenH, 0.08, matStone);
+    backP.position.set(0, P.fpOpenH / 2 + 0.1, P.fpSurroundD / 2 - 0.04);
+    fpG.add(backP);
+
+    // Fire glow block
+    const fire = box(P.fpOpenW * 0.6, 0.15, 0.2, matFireGlow);
+    fire.position.set(0, 0.18, 0.05);
+    fire.castShadow = false;
+    fpG.add(fire);
+
+    // Mantel shelf
+    const mantel = box(P.fpMantelW, P.fpMantelT, P.fpMantelD, matStructWood);
+    // mantel.y = fpSurroundH + mantelT/2
+    mantel.position.y = P.fpSurroundH + P.fpMantelT / 2;
+    fpG.add(mantel);
+
+    // Chimney breast (above mantel to ceiling)
+    const chimneyH = P.roomH - (P.fpSurroundH + P.fpMantelT);
+    const chimney = box(P.fpChimneyW, chimneyH, P.fpChimneyD, matStone);
+    chimney.position.y = P.fpSurroundH + P.fpMantelT + chimneyH / 2;
+    fpG.add(chimney);
+
+    fpG.position.set(P.fpX, 0, P.fpZ);
+    g.add(fpG);
+}
+
+// ══════════════════════════════════════════════════════════
+//  BUILD: Bar Counter + Shelves (hero)
+// ══════════════════════════════════════════════════════════
+function buildBar(g) {
+    const barG = new THREE.Group();
+    barG.name = 'bar_zone';
+
+    // Main counter body
+    const body = box(P.barDepth, P.barH - P.barTopT, P.barLength, matStructWood);
+    body.position.set(P.barX, (P.barH - P.barTopT) / 2, 0);
+    barG.add(body);
+
+    // Counter top (slightly wider)
+    const top = box(P.barDepth + P.barTopOverhang * 2, P.barTopT, P.barLength + 0.1, matFurnWood);
+    top.position.set(P.barX, P.barH - P.barTopT / 2, 0);
+    barG.add(top);
+
+    // Foot rest rail (metal, customer side)
+    const footRail = cyl(0.025, 0.025, P.barLength - 0.4, 8, matMetal);
+    footRail.rotation.x = Math.PI / 2;
+    footRail.position.set(P.barX + P.barDepth / 2 + 0.08, 0.18, 0);
+    barG.add(footRail);
+
+    // Shelves unit against wall
+    const shelfH = 2.0;
+    // Back board
+    const shelfBack = box(0.06, shelfH, P.shelfD, matStructWood);
+    shelfBack.position.set(P.barShelvesX - 0.03, shelfH / 2, 0);
+    barG.add(shelfBack);
+
+    // 3 shelf planks
+    for (let i = 0; i < 3; i++) {
+        const sh = box(P.shelfW, 0.04, P.shelfD, matFurnWood);
+        sh.position.set(P.barShelvesX + P.shelfW / 2, 0.5 + i * 0.55, 0);
+        barG.add(sh);
+    }
+
+    // Bar stools (customer side)
+    const stoolSpacing = P.barLength / (P.barStoolCount + 1);
+    const stoolStartZ = -P.barLength / 2 + stoolSpacing;
+    const stoolX = P.barX + P.barDepth / 2 + 0.45;
+
+    for (let i = 0; i < P.barStoolCount; i++) {
+        const sz = stoolStartZ + i * stoolSpacing;
+        buildStool(barG, stoolX, sz);
+    }
+
+    g.add(barG);
+}
+
+function buildStool(parent, x, z) {
+    const sg = new THREE.Group();
+    sg.name = 'stool';
+
+    // Seat (cylinder)
+    const seat = cyl(P.stoolR, P.stoolR, 0.04, 12, matFurnWood);
+    seat.position.y = P.stoolSeatH;
+    sg.add(seat);
+
+    // 4 legs
+    const legOff = P.stoolR * 0.65;
+    for (let lx = -1; lx <= 1; lx += 2) {
+        for (let lz = -1; lz <= 1; lz += 2) {
+            const leg = cyl(P.stoolLegR, P.stoolLegR, P.stoolSeatH - 0.02, 6, matFurnWood);
+            leg.position.set(lx * legOff, P.stoolSeatH / 2 - 0.01, lz * legOff);
+            sg.add(leg);
+        }
+    }
+
+    sg.position.set(x, 0, z);
+    parent.add(sg);
+}
+
+// ══════════════════════════════════════════════════════════
+//  BUILD: Tables + Benches (mid tier)
+// ══════════════════════════════════════════════════════════
+function buildTables(g) {
+    P.tablePos.forEach((pos, i) => {
+        const tg = new THREE.Group();
+        tg.name = `table_set_${i}`;
+        buildTable(tg);
+        // Two benches flanking on Z
+        buildBench(tg, 0, P.tableD / 2 + P.benchD / 2 + P.benchGap);
+        buildBench(tg, 0, -(P.tableD / 2 + P.benchD / 2 + P.benchGap));
+
+        // Slight random rotation for lived-in feel (seeded by index)
+        const jitterRot = ((i * 137.5) % 10 - 5) * Math.PI / 180;
+        tg.rotation.y = jitterRot;
+        tg.position.set(pos[0], 0, pos[1]);
+        g.add(tg);
+    });
+}
+
+function buildTable(parent) {
+    // Table top
+    const top = box(P.tableW, P.tableTopT, P.tableD, matFurnWood);
+    top.position.y = P.tableH - P.tableTopT / 2;
+    parent.add(top);
+
+    // Two trestle legs (plank style)
+    const legH = P.tableH - P.tableTopT;
+    for (let side = -1; side <= 1; side += 2) {
+        const leg = box(P.tableLegW, legH, P.tableLegD, matFurnWood);
+        leg.position.set(side * (P.tableW / 2 - P.tableLegW * 2), legH / 2, 0);
+        parent.add(leg);
+    }
+
+    // Stretcher bar
+    const stretcherW = P.tableW - P.tableLegW * 6;
+    const stretcher = box(stretcherW, P.stretcherH, P.stretcherH, matFurnWood);
+    stretcher.position.y = legH * 0.25;
+    parent.add(stretcher);
+}
+
+function buildBench(parent, offsetX, offsetZ) {
+    const bg = new THREE.Group();
+    bg.name = 'bench';
+
+    // Seat plank
+    const seat = box(P.benchW, P.benchT, P.benchD, matFurnWood);
+    seat.position.y = P.benchH - P.benchT / 2;
+    bg.add(seat);
+
+    // 4 legs
+    const legH = P.benchH - P.benchT;
+    for (let lx = -1; lx <= 1; lx += 2) {
+        for (let lz = -1; lz <= 1; lz += 2) {
+            const leg = box(P.benchLegW, legH, P.benchLegW, matFurnWood);
+            leg.position.set(
+                lx * (P.benchW / 2 - P.benchLegW * 2),
+                legH / 2,
+                lz * (P.benchD / 2 - P.benchLegW)
+            );
+            bg.add(leg);
+        }
+    }
+
+    bg.position.set(offsetX, 0, offsetZ);
+    parent.add(bg);
+}
+
+// ══════════════════════════════════════════════════════════
+//  BUILD: Barrels (mid/far tier)
+// ══════════════════════════════════════════════════════════
+function buildBarrels(g) {
+    const allBarrels = [...P.alcoveBarrels, ...P.cornerBarrels];
+    allBarrels.forEach((b, i) => {
+        const bg = new THREE.Group();
+        bg.name = `barrel_${i}`;
+
+        if (b.standing) {
+            // Standing barrel
+            const body = cyl(P.barrelR, P.barrelR * 0.88, P.barrelH, 12, matBarrelWood);
+            body.position.y = P.barrelH / 2;
+            bg.add(body);
+
+            // 3 metal bands
+            [0.1, P.barrelH / 2, P.barrelH - 0.1].forEach(bandY => {
+                const band = cyl(P.barrelR + 0.01, P.barrelR * 0.88 + 0.01, 0.03, 12, matMetal);
+                // Scale radius proportionally along height for barrel taper
+                band.position.y = bandY;
+                bg.add(band);
+            });
+        } else {
+            // Sideways barrel
+            const body = cyl(P.barrelR, P.barrelR * 0.88, P.barrelH, 12, matBarrelWood);
+            body.rotation.z = Math.PI / 2;
+            body.position.y = P.barrelR;
+            if (b.rotZ) body.rotation.x = b.rotZ;
+            bg.add(body);
+
+            // 2 bands
+            [-P.barrelH * 0.3, P.barrelH * 0.3].forEach(bOff => {
+                const band = cyl(P.barrelR + 0.01, P.barrelR * 0.88 + 0.01, 0.03, 12, matMetal);
+                band.rotation.z = Math.PI / 2;
+                band.position.set(bOff, P.barrelR, 0);
+                if (b.rotZ) band.rotation.x = b.rotZ;
+                bg.add(band);
+            });
+        }
+
+        bg.position.set(b.x, 0, b.z);
+        g.add(bg);
+    });
+}
+
+// ══════════════════════════════════════════════════════════
+//  BUILD: Door Arch (far tier)
+// ══════════════════════════════════════════════════════════
+function buildDoor(g) {
+    const dg = new THREE.Group();
+    dg.name = 'door';
+
+    // Two jambs
+    for (let side = -1; side <= 1; side += 2) {
+        const jamb = box(0.15, P.doorH, P.wallT + 0.05, matStone);
+        jamb.position.set(side * (P.doorW / 2 + 0.075), P.doorH / 2, 0);
+        dg.add(jamb);
+    }
+
+    // Lintel / arch top
+    const lintelH = 0.3;
+    const lintel = box(P.doorW + 0.3, lintelH, P.wallT + 0.05, matStone);
+    lintel.position.y = P.doorH + lintelH / 2;
+    dg.add(lintel);
+
+    dg.position.set(P.doorX, 0, -P.roomD / 2);
+    g.add(dg);
+}
+
+// ══════════════════════════════════════════════════════════
+//  BUILD: Chandelier (mid tier)
+// ══════════════════════════════════════════════════════════
+function buildChandelier(g) {
+    const cg = new THREE.Group();
+    cg.name = 'chandelier';
+
+    // Chain
+    const chainH = P.roomH - P.chandY;
+    const chain = cyl(0.015, 0.015, chainH, 6, matMetal);
+    chain.position.y = P.chandY + chainH / 2;
+    cg.add(chain);
+
+    // Iron ring (torus)
+    const ringGeo = new THREE.TorusGeometry(P.chandRingR, 0.02, 8, 24);
+    const ring = shad(new THREE.Mesh(ringGeo, matMetal));
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = P.chandY;
+    cg.add(ring);
+
+    // Candle holders + candles around ring
+    for (let i = 0; i < P.chandCandleCount; i++) {
+        const angle = (i / P.chandCandleCount) * Math.PI * 2;
+        const cx = Math.cos(angle) * P.chandRingR;
+        const cz = Math.sin(angle) * P.chandRingR;
+
+        // Small holder plate
+        const holder = cyl(0.03, 0.03, 0.02, 8, matMetal);
+        holder.position.set(cx, P.chandY + 0.01, cz);
+        cg.add(holder);
+
+        // Candle
+        const candle = cyl(0.015, 0.015, 0.12, 6, matPlaster);
+        candle.position.set(cx, P.chandY + 0.08, cz);
+        cg.add(candle);
+
+        // Flame glow (tiny emissive sphere)
+        const flameGeo = new THREE.SphereGeometry(0.02, 6, 6);
+        const flameMat = new THREE.MeshStandardMaterial({
+            color: 0xff9933, emissive: 0xff6600, emissiveIntensity: 2.0
+        });
+        const flame = new THREE.Mesh(flameGeo, flameMat);
+        flame.position.set(cx, P.chandY + 0.15, cz);
+        cg.add(flame);
+    }
+
+    cg.position.set(P.chandX, 0, P.chandZ);
+    g.add(cg);
+}
+
+// ══════════════════════════════════════════════════════════
+//  BUILD: Wall Torches (far tier)
+// ══════════════════════════════════════════════════════════
+function buildTorches(g) {
+    P.torchPositions.forEach((t, i) => {
+        const tg = new THREE.Group();
+        tg.name = `torch_${i}`;
+
+        // Bracket
+        const bracket = box(0.04, 0.04, 0.2, matMetal);
+        bracket.position.set(0, 0, 0.1);
+        tg.add(bracket);
+
+        // Torch body
+        const torch = cyl(0.035, 0.025, 0.35, 6, matStructWood);
+        torch.position.set(0, 0.05, 0.22);
+        torch.rotation.x = -0.3;
+        tg.add(torch);
+
+        // Flame
+        const flameGeo = new THREE.SphereGeometry(0.04, 6, 6);
+        const flameMat = new THREE.MeshStandardMaterial({
+            color: 0xff8800, emissive: 0xff6600, emissiveIntensity: 2.5
+        });
+        const flame = new THREE.Mesh(flameGeo, flameMat);
+        flame.position.set(0, 0.2, 0.32);
+        tg.add(flame);
+
+        tg.position.set(t.x, 1.8, t.z);
+        tg.rotation.y = t.rotY;
+        g.add(tg);
+    });
+}
+
+// ══════════════════════════════════════════════════════════
+//  BUILD: Props — mugs, plates, bottles on tables & bar
+// ══════════════════════════════════════════════════════════
+function buildProps(g) {
+    // Seeded pseudo-random for consistent prop placement
+    let seed = 42;
+    function srand() { seed = (seed * 16807 + 0) % 2147483647; return (seed - 1) / 2147483646; }
+
+    // Mugs on tables
+    P.tablePos.forEach((pos, i) => {
+        const mugCount = 1 + (i % 3);
+        for (let m = 0; m < mugCount; m++) {
+            const mug = cyl(0.035, 0.03, 0.1, 8, matFurnWood);
+            const mx = pos[0] + (m - mugCount / 2) * 0.15 + 0.05;
+            const mz = pos[1] + (srand() - 0.5) * 0.3;
+            mug.position.set(mx, P.tableH + 0.05, mz);
+            mug.name = `mug_table_${i}_${m}`;
+            g.add(mug);
+        }
+
+        // Plates (1-2 per table)
+        const plateCount = 1 + Math.floor(srand() * 2);
+        for (let p = 0; p < plateCount; p++) {
+            const plate = cyl(P.plateR, P.plateR, P.plateT, 12, matCeramic);
+            const px = pos[0] + (srand() - 0.5) * (P.tableW * 0.6);
+            const pz = pos[1] + (srand() - 0.5) * (P.tableD * 0.4);
+            plate.position.set(px, P.tableH + P.plateT / 2, pz);
+            plate.name = `plate_${i}_${p}`;
+            g.add(plate);
+        }
+    });
+
+    // Mugs on bar top
+    for (let i = 0; i < 4; i++) {
+        const mug = cyl(0.035, 0.03, 0.1, 8, matFurnWood);
+        mug.position.set(P.barX + 0.05, P.barH + 0.05, -1.5 + i * 1.0);
+        mug.name = `mug_bar_${i}`;
+        g.add(mug);
+    }
+
+    // Bottles on bar shelves (green glass, varied heights)
+    const shelfYs = [0.5 + 0.04, 0.5 + 0.55 + 0.04, 0.5 + 1.1 + 0.04];
+    for (let i = 0; i < P.bottleCount; i++) {
+        const bh = 0.18 + srand() * 0.12; // 18-30cm tall
+        const br = 0.02 + srand() * 0.015;
+        const bottle = cyl(br * 0.4, br, bh, 8, matGlass);
+        const shelfIdx = Math.floor(srand() * 3);
+        const bz = (srand() - 0.5) * (P.shelfD - 0.2);
+        bottle.position.set(P.barShelvesX + P.shelfW / 2, shelfYs[shelfIdx] + bh / 2, bz);
+        bottle.name = `bottle_${i}`;
+        g.add(bottle);
+    }
+
+    // A few bottles on bar counter too
+    for (let i = 0; i < 2; i++) {
+        const bh = 0.22 + srand() * 0.08;
+        const bottle = cyl(0.025 * 0.5, 0.025, bh, 8, matGlass);
+        bottle.position.set(P.barX - 0.1, P.barH + bh / 2, -0.5 + i * 1.8);
+        g.add(bottle);
+    }
+}
+
+// ══════════════════════════════════════════════════════════
+//  BUILD: Wall Decorations — swords, shield, antler mount
+//  Convention: build all items in local space facing -Z,
+//  then rotate the group to face the target wall.
+//  Right wall (face -X): rotation.y = PI/2
+//  Back wall (face -Z):  rotation.y = 0
+// ══════════════════════════════════════════════════════════
+function buildWallDecor(g) {
+    const hw = P.roomW / 2;
+    const hd = P.roomD / 2;
+
+    // ── Helper: build a shield facing -Z in local space ──
+    function makeShield(radius, depth) {
+        const sg = new THREE.Group();
+        // Body: CylinderGeometry axis=Y, rotate.x=PI/2 → flat face toward -Z
+        const body = cyl(radius, radius * 0.9, depth, 16, matLeather);
+        body.rotation.x = Math.PI / 2;
+        sg.add(body);
+        // Boss: protrudes toward -Z (toward viewer)
+        const boss = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), matMetal);
+        boss.position.z = -depth / 2 - 0.03;
+        sg.add(shad(boss));
+        // Rim: TorusGeometry wraps around Y axis by default — keep it there
+        const rim = shad(new THREE.Mesh(
+            new THREE.TorusGeometry(radius, 0.015, 8, 24), matMetal
+        ));
+        // No rotation — torus stays wrapping around Y axis
+        sg.add(rim);
+        return sg;
+    }
+
+    // ── Helper: build a sword facing -Z in local space ──
+    // Blade in XY plane (thin along Z), extends along +Y
+    function makeSword(length, width) {
+        const sg = new THREE.Group();
+        const blade = box(width, length * 0.7, 0.015, matBlade);
+        blade.position.y = length * 0.25;
+        sg.add(blade);
+        const guard = box(0.18, 0.025, 0.03, matMetal);
+        guard.position.y = -length * 0.1;
+        sg.add(guard);
+        const grip = cyl(0.018, 0.018, 0.15, 6, matLeather);
+        grip.position.y = -length * 0.22;
+        sg.add(grip);
+        const pommel = shad(new THREE.Mesh(new THREE.SphereGeometry(0.025, 8, 8), matMetal));
+        pommel.position.y = -length * 0.3;
+        sg.add(pommel);
+        return sg;
+    }
+
+    // ── Crossed swords + shield on RIGHT WALL ──
+    const rightWallG = new THREE.Group();
+    rightWallG.name = 'right_wall_decor';
+
+    // Two crossed swords
+    for (let side = -1; side <= 1; side += 2) {
+        const sw = makeSword(P.swordLength, P.swordW);
+        sw.rotation.z = side * 0.4; // angled to form X
+        rightWallG.add(sw);
+    }
+
+    // Shield centered below swords
+    const shield1 = makeShield(P.shieldR, P.shieldDepth);
+    shield1.position.y = -0.45;
+    rightWallG.add(shield1);
+
+    // Position group at right wall, rotate to face -X
+    rightWallG.position.set(hw - 0.05, 2.0, 0.5);
+    rightWallG.rotation.y = Math.PI / 2;
+    g.add(rightWallG);
+
+    // ── Shield + sword on BACK WALL (left of fireplace) ──
+    const backWallG = new THREE.Group();
+    backWallG.name = 'back_wall_decor';
+
+    const shield2 = makeShield(P.shieldR * 0.85, P.shieldDepth);
+    backWallG.add(shield2);
+
+    // Lone sword angled behind shield
+    const loneSword = makeSword(P.swordLength * 0.9, P.swordW);
+    loneSword.rotation.z = 0.35;
+    loneSword.position.set(0.05, 0.1, 0.02); // slightly behind shield
+    backWallG.add(loneSword);
+
+    // Position at back wall, facing -Z (no Y rotation needed)
+    backWallG.position.set(-0.8, 2.0, hd - 0.05);
+    // rotation.y = 0 → local -Z stays world -Z ✓
+    g.add(backWallG);
+
+    // ── Antler mount on RIGHT WALL (higher up, different Z) ──
+    const antlerG = new THREE.Group();
+    antlerG.name = 'antler_mount';
+
+    // Mounting plaque: cylinder facing -Z
+    const plaque = cyl(0.12, 0.12, 0.04, 12, matStructWood);
+    plaque.rotation.x = Math.PI / 2;
+    antlerG.add(plaque);
+
+    // Antler branches spread in XY plane (visible from -Z)
+    for (let side = -1; side <= 1; side += 2) {
+        // Main branch
+        const branch = cyl(0.015, 0.008, 0.4, 6, matPlaster);
+        branch.position.set(side * 0.15, 0.08, -0.02);
+        branch.rotation.z = side * -0.8 + Math.PI / 2;
+        antlerG.add(branch);
+
+        // Tine
+        const tine = cyl(0.01, 0.005, 0.2, 6, matPlaster);
+        tine.position.set(side * 0.25, 0.18, -0.02);
+        tine.rotation.z = side * -1.1 + Math.PI / 2;
+        antlerG.add(tine);
+
+        // Short tine
+        const tine2 = cyl(0.01, 0.005, 0.15, 6, matPlaster);
+        tine2.position.set(side * 0.1, -0.06, -0.02);
+        tine2.rotation.z = side * -0.5 + Math.PI / 2;
+        antlerG.add(tine2);
+    }
+
+    // Position on right wall, rotate to face -X
+    antlerG.position.set(hw - 0.05, 2.5, -1.5);
+    antlerG.rotation.y = Math.PI / 2;
+    g.add(antlerG);
+}
+
+// ══════════════════════════════════════════════════════════
+//  BUILD: Fireplace detail — logs, poker, kettle
+// ══════════════════════════════════════════════════════════
+function buildFireplaceDetail(g) {
+    const fpG = new THREE.Group();
+    fpG.name = 'fireplace_detail';
+
+    // Logs inside fireplace (3 logs in a stack)
+    const logMat = matStructWood;
+    for (let i = 0; i < 3; i++) {
+        const logR = 0.06 + (i % 2) * 0.015;
+        const logLen = 0.5 + (i % 2) * 0.1;
+        const log = cyl(logR, logR, logLen, 8, logMat);
+        log.rotation.z = Math.PI / 2;
+        log.rotation.y = (i - 1) * 0.25;
+        log.position.set(
+            (i - 1) * 0.08,
+            0.1 + i * 0.09,
+            0.05
+        );
+        log.name = `fp_log_${i}`;
+        fpG.add(log);
+    }
+
+    // Log stack beside fireplace (on the floor, right side)
+    for (let row = 0; row < 2; row++) {
+        for (let col = 0; col < 3; col++) {
+            const log = cyl(0.055, 0.055, 0.45, 8, logMat);
+            log.rotation.z = Math.PI / 2;
+            log.position.set(
+                P.fpOpenW / 2 + P.fpColW + 0.35,
+                0.055 + row * 0.11,
+                -0.1 + col * 0.12
+            );
+            fpG.add(log);
+        }
+    }
+
+    // Fire poker (leaning against wall)
+    const poker = cyl(0.01, 0.01, 0.8, 6, matMetal);
+    poker.position.set(-P.fpOpenW / 2 - P.fpColW - 0.15, 0.4, 0.1);
+    poker.rotation.z = 0.15;
+    fpG.add(poker);
+
+    // Hanging kettle (from mantel hook)
+    const kettleG = new THREE.Group();
+    kettleG.name = 'kettle';
+
+    // Hook
+    const hook = cyl(0.008, 0.008, 0.15, 6, matMetal);
+    hook.position.y = P.fpSurroundH + P.fpMantelT + 0.075;
+    kettleG.add(hook);
+
+    // Kettle body
+    const kettleBody = new THREE.Mesh(
+        new THREE.SphereGeometry(0.1, 12, 12, 0, Math.PI * 2, 0, Math.PI * 0.7),
+        matMetal
+    );
+    kettleBody.position.y = P.fpSurroundH - 0.05;
+    kettleG.add(shad(kettleBody));
+
+    // Kettle handle
+    const handleGeo = new THREE.TorusGeometry(0.08, 0.008, 8, 16, Math.PI);
+    const handle = shad(new THREE.Mesh(handleGeo, matMetal));
+    handle.position.y = P.fpSurroundH + 0.02;
+    handle.rotation.x = Math.PI;
+    kettleG.add(handle);
+
+    kettleG.position.x = -0.3;
+    fpG.add(kettleG);
+
+    fpG.position.set(P.fpX, 0, P.fpZ);
+    g.add(fpG);
+}
+
+// ══════════════════════════════════════════════════════════
+//  BUILD: Miscellaneous props — broom, bucket, hanging herbs
+// ══════════════════════════════════════════════════════════
+function buildMiscProps(g) {
+    const hw = P.roomW / 2;
+    const hd = P.roomD / 2;
+
+    // Broom leaning near entrance
+    const broomG = new THREE.Group();
+    broomG.name = 'broom';
+    const broomStick = cyl(0.012, 0.012, 1.2, 6, matFurnWood);
+    broomStick.position.y = 0.6;
+    broomStick.rotation.z = 0.12;
+    broomG.add(broomStick);
+    const broomHead = box(0.2, 0.08, 0.06, matStructWood);
+    broomHead.position.set(0.07, 0.05, 0);
+    broomG.add(broomHead);
+    broomG.position.set(-2.5, 0, -hd + 0.2);
+    g.add(broomG);
+
+    // Bucket near bar end
+    const bucketG = new THREE.Group();
+    bucketG.name = 'bucket';
+    const bucketBody = cyl(0.14, 0.12, 0.25, 10, matFurnWood);
+    bucketBody.position.y = 0.125;
+    bucketG.add(bucketBody);
+    // Bucket bands
+    const bband1 = cyl(0.145, 0.135, 0.02, 10, matMetal);
+    bband1.position.y = 0.06;
+    bucketG.add(bband1);
+    const bband2 = cyl(0.145, 0.125, 0.02, 10, matMetal);
+    bband2.position.y = 0.2;
+    bucketG.add(bband2);
+    // Handle
+    const bhandle = new THREE.Mesh(
+        new THREE.TorusGeometry(0.13, 0.008, 6, 12, Math.PI),
+        matMetal
+    );
+    bhandle.position.y = 0.3;
+    bhandle.rotation.z = Math.PI;
+    bucketG.add(shad(bhandle));
+    bucketG.position.set(P.barX + 0.15, 0, -P.barLength / 2 - 0.3);
+    g.add(bucketG);
+
+    // Hanging herb bundles from a beam (dried herbs)
+    const herbMat = new THREE.MeshStandardMaterial({ color: 0x4a5a30, roughness: 0.9 });
+    const beamSpacing = P.roomD / (P.beamCount + 1);
+    const beamZ = -P.roomD / 2 + beamSpacing * 2; // hang from 2nd beam
+    for (let i = 0; i < 3; i++) {
+        const herbG = new THREE.Group();
+        // String
+        const string = cyl(0.005, 0.005, 0.25, 4, matFurnWood);
+        string.position.y = P.roomH - P.beamCrossH - 0.125;
+        herbG.add(string);
+        // Herb bundle (inverted cone)
+        const herb = cyl(0.005, 0.05, 0.2, 6, herbMat);
+        herb.position.y = P.roomH - P.beamCrossH - 0.35;
+        herbG.add(herb);
+
+        herbG.position.set(-1.5 + i * 0.3, 0, beamZ);
+        herbG.name = `herb_${i}`;
+        g.add(herbG);
+    }
+}
+
+// ══════════════════════════════════════════════════════════
+//  MAIN BUILD
+// ══════════════════════════════════════════════════════════
+function buildModel(scene) {
+    const g = new THREE.Group();
+    g.name = 'tavern_root';
+
+    buildRoom(g);
+    buildBeams(g);
+    buildFireplace(g);
+    buildBar(g);
+    buildTables(g);
+    buildBarrels(g);
+    buildDoor(g);
+    buildChandelier(g);
+    buildTorches(g);
+    buildProps(g);
+    buildWallDecor(g);
+    buildFireplaceDetail(g);
+    buildMiscProps(g);
+
+    scene.add(g);
+    return g;
+}
+
+// ══════════════════════════════════════════════════════════
+//  SCENE SETUP — Interior-optimized
+// ══════════════════════════════════════════════════════════
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#1a1410');
+
+const camera = new THREE.PerspectiveCamera(
+    55, window.innerWidth / window.innerHeight, 0.05, 100
+);
+// Start inside the room, eye height, looking toward fireplace
+camera.position.set(-1.0, 1.7, -4.5);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.9;
+document.body.appendChild(renderer.domElement);
+
+// ── Interior Lighting ──
+// Low ambient — medieval tavern is dim
+const ambient = new THREE.AmbientLight(0xffd8a8, 0.15);
+scene.add(ambient);
+
+// Fireplace warm glow (strongest light)
+const firePt = new THREE.PointLight(0xff7733, 2.5, 8, 1.5);
+firePt.position.set(P.fpX, 0.6, P.fpZ - 0.5);
+firePt.castShadow = true;
+firePt.shadow.mapSize.set(512, 512);
+scene.add(firePt);
+
+// Chandelier light
+const chandPt = new THREE.PointLight(0xffaa55, 1.5, 10, 1.5);
+chandPt.position.set(P.chandX, P.chandY - 0.1, P.chandZ);
+chandPt.castShadow = true;
+chandPt.shadow.mapSize.set(512, 512);
+scene.add(chandPt);
+
+// Torch lights (dimmer)
+P.torchPositions.forEach(t => {
+    const tl = new THREE.PointLight(0xff8844, 0.6, 5, 2);
+    tl.position.set(t.x * 0.9, 2.0, t.z * 0.9);
+    scene.add(tl);
+});
+
+// Faint fill from door (daylight spill)
+const doorLight = new THREE.SpotLight(0xaabbcc, 0.8, 8, 0.6, 0.5, 2);
+doorLight.position.set(P.doorX, 1.5, -P.roomD / 2 - 1.5);
+doorLight.target.position.set(P.doorX, 0, -P.roomD / 2 + 2);
+scene.add(doorLight);
+scene.add(doorLight.target);
+
+// Build
+const model = buildModel(scene);
+
+// Controls
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.target.set(0.5, 1.0, 0.5);
+
+// Render loop
+function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+}
+animate();
+
+// Resize
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>

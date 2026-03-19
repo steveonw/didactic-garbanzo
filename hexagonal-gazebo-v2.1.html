@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Hexagonal Gazebo v2.0</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { overflow: hidden; background: #1a1a2e; }
+  canvas { display: block; }
+  #info {
+    position: fixed; top: 12px; left: 12px;
+    color: #aaa; font: 13px/1.4 monospace;
+    background: rgba(0,0,0,0.5); padding: 8px 12px;
+    border-radius: 6px; pointer-events: none;
+    max-width: 320px;
+  }
+</style>
+</head>
+<body>
+
+<div id="info">
+  <strong>Hexagonal Gazebo v2.0</strong><br>
+  Orbit: drag &middot; Zoom: scroll &middot; Pan: right-drag
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // Make THREE available globally for buildModel compatibility
+    window.THREE = THREE;
+
+    // ══════════════════════════════════════════════════════════
+    //  PARAMETERS
+    // ══════════════════════════════════════════════════════════
+    // ── Hexagonal Gazebo v2.0 — full Stage 4 verified ──────
+    // Unit: meters. Y-up. Origin at ground center.
+    // Hex geometry: R=3.0, apothem=2.598m, side=3.0m
+    const PARAMS = {
+        unit: 'm',
+        groundY: 0,
+
+        // platform (hex, slightly larger than post ring)
+        platformRadius: 3.2,
+        platformHeight: 0.2,
+
+        // posts (6 at hex vertices, R=3.0)
+        postRadius: 3.0,        // circumscribed radius
+        postSection: 0.15,      // square cross-section
+        postHeight: 2.4,        // bottom at platformHeight, top at 2.6
+
+        // benches (3 on alternating walls: 0, 2, 4)
+        benchWidth: 2.5,        // along the wall
+        benchDepth: 0.4,        // front to back
+        benchHeight: 0.45,      // seat height (scale anchor: 0.45m)
+        benchGapFromWall: 0.05, // back face sits this far from wall line
+        // Derived: push inward = benchGapFromWall + benchDepth/2 = 0.25m
+        // Bench center at 2.598 - 0.25 = 2.348m from center
+        // Bench back face at 2.548m, wall at 2.598m, gap = 0.05m ✓
+
+        // roof
+        eaveRadius: 3.3,        // wider than posts for overhang
+        eaveHeight: 0.15,       // bottom at 2.6, top at 2.75
+        domeRadius: 2.5,        // bottom at 2.75, peak at 3.75
+        domeHeight: 1.0,
+        domeSegments: 16,
+
+        // finial
+        finialRadius: 0.06,
+        finialHeight: 0.3,      // bottom at 3.75, top at 4.05
+    };
+
+    // ══════════════════════════════════════════════════════════
+    //  BUILD MODEL
+    // ══════════════════════════════════════════════════════════
+    // ── Materials (5 distinct, no adjacent surfaces share one) ──
+    const MATS = {
+        stone:    new THREE.MeshStandardMaterial({ color: 0xc4b8a8, roughness: 0.85 }),
+        woodDark: new THREE.MeshStandardMaterial({ color: 0x5c3a1e, roughness: 0.80 }),
+        woodMed:  new THREE.MeshStandardMaterial({ color: 0x8b6914, roughness: 0.75 }),
+        roofTile: new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.70 }),
+        bench:    new THREE.MeshStandardMaterial({ color: 0xa0826d, roughness: 0.65 }),
+    };
+
+    // ── Hex vertex helper ──
+    function hexVertex(i, radius) {
+        const a = (Math.PI * 2 / 6) * i;
+        return { x: radius * Math.cos(a), z: radius * Math.sin(a), angle: a };
+    }
+
+    function buildModel(scene) {
+        const g = new THREE.Group();
+        g.name = 'gazebo';
+        buildPlatform(g);
+        buildPosts(g);
+        buildBenches(g);
+        buildRoof(g);
+        g.traverse(child => {
+            if (child.isMesh) { child.castShadow = true; child.receiveShadow = true; }
+        });
+        scene.add(g);
+        return g;
+    }
+
+    // ── Platform: hex cylinder, flat side forward ──
+    function buildPlatform(parent) {
+        const geo = new THREE.CylinderGeometry(
+            PARAMS.platformRadius, PARAMS.platformRadius, PARAMS.platformHeight, 6
+        );
+        const mesh = new THREE.Mesh(geo, MATS.stone);
+        mesh.name = 'platform';
+        mesh.position.y = PARAMS.groundY + PARAMS.platformHeight / 2; // stacking: 0 + 0.1 = 0.1
+        mesh.rotation.y = Math.PI / 6; // flat side faces front
+        parent.add(mesh);
+    }
+
+    // ── Posts: 6 at hex vertices ──
+    function buildPosts(parent) {
+        const geo = new THREE.BoxGeometry(PARAMS.postSection, PARAMS.postHeight, PARAMS.postSection);
+        for (let i = 0; i < 6; i++) {
+            const v = hexVertex(i, PARAMS.postRadius);
+            const post = new THREE.Mesh(geo, MATS.woodDark);
+            post.name = `post_${i}`;
+            post.position.set(v.x, PARAMS.platformHeight + PARAMS.postHeight / 2, v.z);
+            // stacking: 0.2 + 1.2 = 1.4 center, bottom at 0.2, top at 2.6 ✓
+            post.rotation.y = v.angle;
+            parent.add(post);
+        }
+    }
+
+    // ── Benches: 3 on alternating walls, BACK FACE flush with wall ──
+    // Math verified in Stage 4:
+    //   wall midpoint is at apothem distance (2.598m) from center
+    //   inward normal points toward center
+    //   push = benchGapFromWall + benchDepth/2 = 0.05 + 0.2 = 0.25m
+    //   bench center at 2.598 - 0.25 = 2.348m from center
+    //   bench back face at 2.348 + 0.2 = 2.548m from center
+    //   wall at 2.598m → gap = 0.05m ✓
+    //   bench rotation = wall DIRECTION angle (parallel to wall), NOT normal angle
+    function buildBenches(parent) {
+        const geo = new THREE.BoxGeometry(PARAMS.benchWidth, PARAMS.benchHeight, PARAMS.benchDepth);
+        const benchSides = [0, 2, 4]; // alternating walls
+
+        for (const si of benchSides) {
+            const v1 = hexVertex(si, PARAMS.postRadius);
+            const v2 = hexVertex((si + 1) % 6, PARAMS.postRadius);
+
+            // Wall midpoint
+            const midX = (v1.x + v2.x) / 2;
+            const midZ = (v1.z + v2.z) / 2;
+
+            // Wall direction vector (along the wall)
+            const dirX = v2.x - v1.x;
+            const dirZ = v2.z - v1.z;
+
+            // Wall direction angle — bench long axis rotates to THIS
+            const wallAngle = Math.atan2(dirZ, dirX);
+
+            // Inward normal (perpendicular to wall, toward center)
+            let nx = -dirZ, nz = dirX;
+            const len = Math.sqrt(nx * nx + nz * nz);
+            nx /= len; nz /= len;
+            // Ensure it points inward (toward origin)
+            if (nx * midX + nz * midZ > 0) { nx = -nx; nz = -nz; }
+
+            // Push inward: gap + half depth = back face lands at gap distance from wall
+            const push = PARAMS.benchGapFromWall + PARAMS.benchDepth / 2;
+
+            const bench = new THREE.Mesh(geo, MATS.bench);
+            bench.name = `bench_${si}`;
+            bench.position.set(
+                midX + nx * push,
+                PARAMS.platformHeight + PARAMS.benchHeight / 2, // stacking: 0.2 + 0.225 = 0.425
+                midZ + nz * push
+            );
+            // Rotate so bench depth (local +Z) aligns with inward normal
+            // This ensures the back face (-Z) faces the wall
+            // Using wallAngle was WRONG — it aligned local +X with wall direction
+            // but Three.js Y-rotation maps local +Z to (sin θ, 0, cos θ),
+            // so we need atan2(nx, nz) to align +Z with inward
+            bench.rotation.y = Math.atan2(nx, nz);
+            parent.add(bench);
+        }
+    }
+
+    // ── Roof: eave ring + dome + finial ──
+    function buildRoof(parent) {
+        const roof = new THREE.Group();
+        roof.name = 'roof';
+
+        // Eave ring sits on post tops
+        const eaveGeo = new THREE.CylinderGeometry(
+            PARAMS.eaveRadius, PARAMS.eaveRadius, PARAMS.eaveHeight, 6
+        );
+        const eave = new THREE.Mesh(eaveGeo, MATS.woodDark);
+        eave.name = 'eave_ring';
+        const eaveY = PARAMS.platformHeight + PARAMS.postHeight + PARAMS.eaveHeight / 2;
+        // stacking: 0.2 + 2.4 + 0.075 = 2.675 center, bottom at 2.6, top at 2.75 ✓
+        eave.position.y = eaveY;
+        eave.rotation.y = Math.PI / 6;
+        roof.add(eave);
+
+        // Dome sits on eave ring top
+        const domeGeo = new THREE.SphereGeometry(
+            PARAMS.domeRadius, PARAMS.domeSegments, 8, 0, Math.PI * 2, 0, Math.PI / 2
+        );
+        const dome = new THREE.Mesh(domeGeo, MATS.roofTile);
+        dome.name = 'dome_cap';
+        dome.scale.y = PARAMS.domeHeight / PARAMS.domeRadius; // flatten
+        const eaveTop = PARAMS.platformHeight + PARAMS.postHeight + PARAMS.eaveHeight;
+        // stacking: dome base at eaveTop = 2.75, peak at 2.75 + 1.0 = 3.75 ✓
+        dome.position.y = eaveTop;
+        roof.add(dome);
+
+        // Finial on dome peak
+        const finGeo = new THREE.CylinderGeometry(0.03, PARAMS.finialRadius, PARAMS.finialHeight, 8);
+        const finial = new THREE.Mesh(finGeo, MATS.woodDark);
+        finial.name = 'finial';
+        finial.position.y = eaveTop + PARAMS.domeHeight + PARAMS.finialHeight / 2;
+        // stacking: 3.75 + 0.15 = 3.9 center, bottom at 3.75, top at 4.05 ✓
+        roof.add(finial);
+
+        parent.add(roof);
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  SCENE SETUP (usually no need to edit below)
+    // ══════════════════════════════════════════════════════════
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#1a1a2e');
+    scene.fog = new THREE.Fog('#1a1a2e', 80, 200);
+
+    const camera = new THREE.PerspectiveCamera(
+        50, window.innerWidth / window.innerHeight, 0.1, 500
+    );
+    camera.position.set(10, 5.0, 8.0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    document.body.appendChild(renderer.domElement);
+
+    // Lighting
+    const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+    scene.add(ambient);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(15, 25, 20);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.set(1024, 1024);
+    dirLight.shadow.camera.near = 0.5;
+    dirLight.shadow.camera.far = 80;
+    dirLight.shadow.camera.left = -20;
+    dirLight.shadow.camera.right = 20;
+    dirLight.shadow.camera.top = 20;
+    dirLight.shadow.camera.bottom = -20;
+    scene.add(dirLight);
+
+    const fillLight = new THREE.DirectionalLight(0x8899bb, 0.3);
+    fillLight.position.set(-10, 8, -10);
+    scene.add(fillLight);
+
+        const gridHelper = new THREE.GridHelper(40, 40, 0x444444, 0x222222);
+        scene.add(gridHelper);
+
+        const axesHelper = new THREE.AxesHelper(8);
+        scene.add(axesHelper);
+
+    // Build
+    const model = buildModel(scene);
+
+    // Controls (real OrbitControls with touch, keyboard, damping)
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.target.set(0, 1.5, 0);
+
+    // Render loop
+    function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+    }
+    animate();
+
+    // Resize
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+</script>
+</body>
+</html>

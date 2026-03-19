@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Ruined Dock v1.0</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { overflow: hidden; background: #8a9aa4; }
+  canvas { display: block; }
+  #info {
+    position: fixed; top: 12px; left: 12px;
+    color: #ddd; font: 13px/1.4 monospace;
+    background: rgba(0,0,0,0.45); padding: 8px 12px;
+    border-radius: 6px; pointer-events: none;
+    max-width: 320px;
+  }
+</style>
+</head>
+<body>
+
+<div id="info">
+  <strong>Ruined Dock v1.0</strong><br>
+  Orbit: drag · Zoom: scroll · Pan: right-drag
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// Ruined Dock v1.0 — abandoned harbor with weathered ship
+// Y=up, X=width, Z=depth. Water at Y=0. Quay at +Z, open water at -Z.
+
+// ══════════════════════════════════════════════════════════
+//  PARAMETERS
+// ══════════════════════════════════════════════════════════
+const P = {
+    // Water
+    waterY: 0, waterSize: 60,
+
+    // Quay (land, +Z side)
+    quayW: 24, quayD: 8, quaySurfaceT: 0.3, quaySurfaceY: 1.5,
+    quayZ: 8, // center Z of quay surface
+    quayWallH: 2.25, quayWallT: 0.8,
+    quayWallY: 0.375, // center: (-0.75 + 2.25/2)
+    quayEdgeZ: 4.0, // Z of quay front edge (water side)
+
+    // Pier (extends from quay into water, -Z direction)
+    pierX: -3, pierW: 3.0, pierD: 12, pierY: 1.3, pierPlankT: 0.1,
+    pierStartZ: 4.0, // starts at quay edge
+    pierPileR: 0.12, pierPileH: 2.1, // from -0.75 to 1.35
+    pierPileY: 0.3, // center
+    // Pile grid: 2 columns (X), 5 rows (Z), spacing 2×3
+    pierPileOffsets: [
+        [-1, 6], [-1, 3], [-1, 0], [-1, -3], [-1, -6],
+        [1, 6],  [1, 3],  [1, 0],  [1, -3],  [1, -6]
+    ],
+    // Missing plank zones (indices of Z-segments to skip for ruin feel)
+    pierMissingPlanks: [3, 7, 8, 11], // skip these plank indices
+    pierPlankCount: 15,
+
+    // Ship (hero, listing to starboard)
+    shipX: 5, shipZ: -6,
+    shipLength: 12, shipBeam: 3.5, shipHullH: 2.5,
+    shipDraftY: -0.8, // keel Y
+    shipDeckY: 1.7, shipDeckT: 0.1,
+    shipListDeg: 15,
+    mastStumpH: 3.0, mastR: 0.1,
+    bowTaper: 0.4, sternTaper: 0.6, // taper ratios at bow/stern
+
+    // Crane (hero, collapsed)
+    craneX: -9, craneZ: 6,
+    cranePostH: 4.5, cranePostW: 0.3,
+    craneArmL: 5.0, craneArmW: 0.2, craneArmH: 0.25,
+    craneCollapseDeg: 35,
+    craneLeanDeg: 5, // slight lean of post
+
+    // Bollards
+    bollardPositions: [-6, 0, 6, 9],
+    bollardH: 0.6, bollardR: 0.15,
+
+    // Debris positions (hand-placed)
+    crates: [
+        { x: -7, z: 7, w: 0.8, h: 0.7, d: 0.8, rot: 0.1 },
+        { x: -6.5, z: 7.5, w: 0.6, h: 0.5, d: 0.6, rot: -0.2 },
+        { x: -7.5, z: 6.5, w: 0.7, h: 0.6, d: 0.7, rot: 0.4 },
+        { x: 3, z: 6.5, w: 0.7, h: 0.6, d: 0.7, rot: -0.15 },
+        { x: 3.5, z: 7, w: 0.5, h: 0.45, d: 0.5, rot: 0.3 },
+        { x: -2.5, z: 5, w: 0.6, h: 0.5, d: 0.6, rot: 0.6 },
+    ],
+    barrels: [
+        { x: -4, z: 5.5, standing: true },
+        { x: -3.4, z: 5.8, standing: true },
+        { x: -4.5, z: 5.2, standing: false, rotZ: 0.3 },
+        { x: -3.8, z: 6.3, standing: false, rotZ: -0.5 },
+        { x: 8, z: 5.5, standing: true },
+    ],
+    barrelR: 0.25, barrelH: 0.75,
+
+    // Rope coils
+    ropeCoils: [
+        { x: -1, z: 4.8 },
+        { x: 7, z: 4.5 },
+    ],
+};
+
+// ══════════════════════════════════════════════════════════
+//  MATERIALS
+// ══════════════════════════════════════════════════════════
+const matWeatheredWood = new THREE.MeshStandardMaterial({ color: 0x7a7060, roughness: 0.9 });
+const matDarkWood = new THREE.MeshStandardMaterial({ color: 0x5a4a3a, roughness: 0.85 });
+const matShipWood = new THREE.MeshStandardMaterial({ color: 0x6a5a48, roughness: 0.9 });
+const matStone = new THREE.MeshStandardMaterial({ color: 0x8a8578, roughness: 0.85 });
+const matStoneDark = new THREE.MeshStandardMaterial({ color: 0x6a6560, roughness: 0.9 });
+const matMetal = new THREE.MeshStandardMaterial({ color: 0x5a5a5a, roughness: 0.5, metalness: 0.7 });
+const matRustyMetal = new THREE.MeshStandardMaterial({ color: 0x8a5533, roughness: 0.7, metalness: 0.4 });
+const matRope = new THREE.MeshStandardMaterial({ color: 0x9a8a6a, roughness: 0.95 });
+const matMoss = new THREE.MeshStandardMaterial({ color: 0x556b4a, roughness: 0.9 });
+const matCrate = new THREE.MeshStandardMaterial({ color: 0x8a7a5a, roughness: 0.85 });
+const matWater = new THREE.MeshStandardMaterial({
+    color: 0x3a5a5a, roughness: 0.1, metalness: 0.3,
+    transparent: true, opacity: 0.85
+});
+
+// ══════════════════════════════════════════════════════════
+//  HELPERS
+// ══════════════════════════════════════════════════════════
+function shad(m) { m.castShadow = true; m.receiveShadow = true; return m; }
+function box(w, h, d, mat) { return shad(new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat)); }
+function cyl(rT, rB, h, seg, mat) { return shad(new THREE.Mesh(new THREE.CylinderGeometry(rT, rB, h, seg), mat)); }
+
+// Seeded random for reproducible debris placement
+let _seed = 42;
+function srand() { _seed = (_seed * 16807 + 0) % 2147483647; return (_seed - 1) / 2147483646; }
+
+// ══════════════════════════════════════════════════════════
+//  BUILD: Water
+// ══════════════════════════════════════════════════════════
+function buildWater(g) {
+    const water = new THREE.Mesh(
+        new THREE.PlaneGeometry(P.waterSize, P.waterSize),
+        matWater
+    );
+    water.rotation.x = -Math.PI / 2;
+    water.position.y = P.waterY;
+    water.receiveShadow = true;
+    water.name = 'water';
+    g.add(water);
+}
+
+// ══════════════════════════════════════════════════════════
+//  BUILD: Stone Quay
+// ══════════════════════════════════════════════════════════
+function buildQuay(g) {
+    // Quay surface slab
+    const surface = box(P.quayW, P.quaySurfaceT, P.quayD, matStone);
+    surface.position.set(0, P.quaySurfaceY - P.quaySurfaceT / 2, P.quayZ);
+    surface.name = 'quay_surface';
+    g.add(surface);
+
+    // Front wall (water-facing edge)
+    const wall = box(P.quayW, P.quayWallH, P.quayWallT, matStoneDark);
+    wall.position.set(0, P.quayWallY, P.quayEdgeZ - P.quayWallT / 2);
+    wall.name = 'quay_wall';
+    g.add(wall);
+
+    // Moss strips along quay wall at waterline
+    for (let i = 0; i < 6; i++) {
+        const moss = box(3 + srand() * 2, 0.15, 0.05, matMoss);
+        moss.position.set(-10 + i * 4 + srand() * 2, 0.1, P.quayEdgeZ - P.quayWallT - 0.02);
+        g.add(moss);
+    }
+}
+
+// ══════════════════════════════════════════════════════════
+//  BUILD: Wooden Pier (with missing planks)
+// ══════════════════════════════════════════════════════════
+function buildPier(g) {
+    const pg = new THREE.Group();
+    pg.name = 'pier';
+
+    // Plank deck segments
+    const plankD = P.pierD / P.pierPlankCount;
+    for (let i = 0; i < P.pierPlankCount; i++) {
+        if (P.pierMissingPlanks.includes(i)) continue; // ruined — skip this plank
+        const plank = box(P.pierW, P.pierPlankT, plankD - 0.05, matWeatheredWood);
+        const pz = P.pierStartZ - plankD / 2 - i * plankD;
+        plank.position.set(0, P.pierY, pz);
+        plank.name = `pier_plank_${i}`;
+        pg.add(plank);
+    }
+
+    // Support beams (2 lengthwise under the deck)
+    for (let side = -1; side <= 1; side += 2) {
+        const beam = box(0.15, 0.2, P.pierD, matDarkWood);
+        beam.position.set(side * (P.pierW / 2 - 0.2), P.pierY - P.pierPlankT / 2 - 0.1, P.pierStartZ - P.pierD / 2);
+        pg.add(beam);
+    }
+
+    // Piles (vertical supports going into water)
+    P.pierPileOffsets.forEach((off, i) => {
+        // Skip some piles for ruin effect (last row)
+        if (i >= 8 && srand() > 0.5) return;
+
+        const pile = cyl(P.pierPileR, P.pierPileR * 1.1, P.pierPileH, 8, matDarkWood);
+        const pz = P.pierStartZ - P.pierD / 2 + off[1];
+        pile.position.set(off[0], P.pierPileY, pz);
+        pile.name = `pier_pile_${i}`;
+
+        // Slight random lean for weathered look
+        pile.rotation.z = (srand() - 0.5) * 0.08;
+        pile.rotation.x = (srand() - 0.5) * 0.05;
+        pg.add(pile);
+    });
+
+    pg.position.x = P.pierX;
+    g.add(pg);
+}
+
+// ══════════════════════════════════════════════════════════
+//  BUILD: Ship Hull (hero, listing)
+// ══════════════════════════════════════════════════════════
+function buildShip(g) {
+    const sg = new THREE.Group();
+    sg.name = 'ship';
+
+    // Hull: tapered box approximation
+    // Build as a series of cross-sections along Z (length)
+    const hullG = new THREE.Group();
+    hullG.name = 'hull';
+
+    const sections = 8;
+    const sectionLen = P.shipLength / sections;
+    for (let i = 0; i < sections; i++) {
+        const t = i / (sections - 1); // 0 = stern, 1 = bow
+        // Taper: stern is wider, bow narrows
+        let beamScale;
+        if (t < 0.3) beamScale = P.sternTaper + (1 - P.sternTaper) * (t / 0.3);
+        else if (t > 0.7) beamScale = 1 - (1 - P.bowTaper) * ((t - 0.7) / 0.3);
+        else beamScale = 1.0;
+
+        const w = P.shipBeam * beamScale;
+        const section = box(w, P.shipHullH, sectionLen, matShipWood);
+        const sz = -P.shipLength / 2 + sectionLen / 2 + i * sectionLen;
+        section.position.set(0, P.shipDraftY + P.shipHullH / 2, sz);
+        section.name = `hull_section_${i}`;
+        hullG.add(section);
+    }
+    sg.add(hullG);
+
+    // Deck (with holes)
+    const deckG = new THREE.Group();
+    deckG.name = 'deck';
+    const deckSections = 6;
+    const deckSectionLen = (P.shipLength - 2) / deckSections;
+    for (let i = 0; i < deckSections; i++) {
+        if (i === 2 || i === 4) continue; // holes in deck
+        const dw = P.shipBeam * 0.85;
+        const dPlank = box(dw, P.shipDeckT, deckSectionLen - 0.1, matWeatheredWood);
+        const dz = -(P.shipLength - 2) / 2 + deckSectionLen / 2 + i * deckSectionLen;
+        dPlank.position.set(0, P.shipDeckY, dz);
+        deckG.add(dPlank);
+    }
+    sg.add(deckG);
+
+    // Gunwale rails (top edges of hull)
+    for (let side = -1; side <= 1; side += 2) {
+        const rail = box(0.08, 0.15, P.shipLength * 0.85, matDarkWood);
+        rail.position.set(side * (P.shipBeam / 2 - 0.1), P.shipDeckY + 0.15, 0);
+        sg.add(rail);
+    }
+
+    // Mast stump
+    const mast = cyl(P.mastR, P.mastR * 1.2, P.mastStumpH, 8, matDarkWood);
+    mast.position.set(0, P.shipDeckY + P.mastStumpH / 2, -0.5);
+    mast.name = 'mast_stump';
+    sg.add(mast);
+
+    // Mast broken top — jagged (angled cylinder)
+    const mastTop = cyl(P.mastR * 0.8, P.mastR, 0.3, 6, matDarkWood);
+    mastTop.position.set(0, P.shipDeckY + P.mastStumpH + 0.1, -0.5);
+    mastTop.rotation.z = 0.4;
+    sg.add(mastTop);
+
+    // Rudder (stern)
+    const rudder = box(0.08, 1.5, 0.6, matDarkWood);
+    rudder.position.set(0, P.shipDraftY + 0.75, P.shipLength / 2 - 0.1);
+    rudder.rotation.y = 0.1;
+    sg.add(rudder);
+
+    // Bowsprit stump
+    const bowsprit = cyl(0.06, 0.04, 2.0, 6, matDarkWood);
+    bowsprit.rotation.x = 0.3; // angled forward-down
+    bowsprit.position.set(0, P.shipDeckY + 0.3, -P.shipLength / 2 - 0.8);
+    sg.add(bowsprit);
+
+    // Apply list (tilt around Z axis)
+    const listRad = P.shipListDeg * Math.PI / 180;
+    sg.rotation.z = listRad;
+
+    sg.position.set(P.shipX, 0, P.shipZ);
+    g.add(sg);
+}
+
+// ══════════════════════════════════════════════════════════
+//  BUILD: Crane (hero, collapsed)
+// ══════════════════════════════════════════════════════════
+function buildCrane(g) {
+    const cg = new THREE.Group();
+    cg.name = 'crane';
+
+    // Base platform
+    const base = box(1.2, 0.3, 1.2, matStone);
+    base.position.y = P.quaySurfaceY + 0.15;
+    cg.add(base);
+
+    // Vertical post (slightly leaning)
+    const post = box(P.cranePostW, P.cranePostH, P.cranePostW, matDarkWood);
+    post.position.y = P.quaySurfaceY + 0.3 + P.cranePostH / 2;
+    post.rotation.z = P.craneLeanDeg * Math.PI / 180;
+    post.name = 'crane_post';
+    cg.add(post);
+
+    // Collapsed arm (rotated down from top of post)
+    const armG = new THREE.Group();
+    const arm = box(P.craneArmW, P.craneArmH, P.craneArmL, matDarkWood);
+    arm.position.z = -P.craneArmL / 2;
+    armG.add(arm);
+
+    // Pulley at arm end
+    const pulley = cyl(0.1, 0.1, 0.05, 8, matRustyMetal);
+    pulley.rotation.x = Math.PI / 2;
+    pulley.position.set(0, -0.05, -P.craneArmL + 0.1);
+    armG.add(pulley);
+
+    // Hanging rope from pulley
+    const rope = cyl(0.015, 0.015, 2.0, 6, matRope);
+    rope.position.set(0, -1.1, -P.craneArmL + 0.1);
+    armG.add(rope);
+
+    // Position arm at top of post, collapse forward
+    armG.position.set(0, P.quaySurfaceY + 0.3 + P.cranePostH, 0);
+    armG.rotation.x = P.craneCollapseDeg * Math.PI / 180;
+    cg.add(armG);
+
+    // Cross-braces on post
+    for (let h = 0; h < 2; h++) {
+        const brace = box(0.08, 0.08, 1.2, matDarkWood);
+        brace.position.set(0, P.quaySurfaceY + 1.5 + h * 1.5, 0);
+        brace.rotation.y = h * Math.PI / 4;
+        cg.add(brace);
+    }
+
+    cg.position.set(P.craneX, 0, P.craneZ);
+    g.add(cg);
+}
+
+// ══════════════════════════════════════════════════════════
+//  BUILD: Bollards
+// ══════════════════════════════════════════════════════════
+function buildBollards(g) {
+    P.bollardPositions.forEach((bx, i) => {
+        const bollard = cyl(P.bollardR, P.bollardR * 1.3, P.bollardH, 8, matStoneDark);
+        // bollard.y = quaySurfaceY + bollardH/2
+        bollard.position.set(bx, P.quaySurfaceY + P.bollardH / 2, P.quayEdgeZ + 0.2);
+        bollard.name = `bollard_${i}`;
+        g.add(bollard);
+
+        // Rope draped on some bollards
+        if (i % 2 === 0) {
+            const ropeLoop = new THREE.Mesh(
+                new THREE.TorusGeometry(P.bollardR + 0.05, 0.02, 6, 16),
+                matRope
+            );
+            ropeLoop.position.set(bx, P.quaySurfaceY + P.bollardH * 0.7, P.quayEdgeZ + 0.2);
+            ropeLoop.rotation.x = 0.3;
+            g.add(shad(ropeLoop));
+        }
+    });
+}
+
+// ══════════════════════════════════════════════════════════
+//  BUILD: Crates & Barrels (mid tier debris)
+// ══════════════════════════════════════════════════════════
+function buildDebris(g) {
+    // Crates
+    P.crates.forEach((c, i) => {
+        const crate = box(c.w, c.h, c.d, matCrate);
+        crate.position.set(c.x, P.quaySurfaceY + c.h / 2, c.z);
+        crate.rotation.y = c.rot;
+        // Some crates tilted for ruin feel
+        if (i === 2) crate.rotation.z = 0.2;
+        if (i === 4) crate.rotation.x = -0.15;
+        crate.name = `crate_${i}`;
+        g.add(crate);
+
+        // Metal band on crate
+        const band = box(c.w + 0.02, 0.03, c.d + 0.02, matRustyMetal);
+        band.position.set(c.x, P.quaySurfaceY + c.h * 0.7, c.z);
+        band.rotation.y = c.rot;
+        g.add(band);
+    });
+
+    // Barrels
+    P.barrels.forEach((b, i) => {
+        const bg = new THREE.Group();
+        if (b.standing) {
+            const body = cyl(P.barrelR, P.barrelR * 0.9, P.barrelH, 10, matWeatheredWood);
+            body.position.y = P.barrelH / 2;
+            bg.add(body);
+            // Bands
+            [0.08, P.barrelH / 2, P.barrelH - 0.08].forEach(by => {
+                const band = cyl(P.barrelR + 0.01, P.barrelR * 0.9 + 0.01, 0.025, 10, matRustyMetal);
+                band.position.y = by;
+                bg.add(band);
+            });
+            bg.position.set(b.x, P.quaySurfaceY, b.z);
+        } else {
+            const body = cyl(P.barrelR, P.barrelR * 0.9, P.barrelH, 10, matWeatheredWood);
+            body.rotation.z = Math.PI / 2;
+            body.position.y = P.barrelR;
+            bg.add(body);
+            bg.position.set(b.x, P.quaySurfaceY, b.z);
+            if (b.rotZ) bg.rotation.y = b.rotZ;
+        }
+        bg.name = `barrel_${i}`;
+        g.add(bg);
+    });
+
+    // Rope coils on quay
+    P.ropeCoils.forEach((rc, i) => {
+        const coil = new THREE.Mesh(
+            new THREE.TorusGeometry(0.25, 0.04, 8, 24),
+            matRope
+        );
+        coil.rotation.x = -Math.PI / 2;
+        coil.position.set(rc.x, P.quaySurfaceY + 0.04, rc.z);
+        coil.name = `rope_coil_${i}`;
+        g.add(shad(coil));
+    });
+
+    // Broken planks floating in water near pier end
+    for (let i = 0; i < 4; i++) {
+        const plank = box(0.15 + srand() * 0.1, 0.06, 1.0 + srand() * 0.8, matWeatheredWood);
+        plank.position.set(
+            P.pierX + (srand() - 0.5) * 4,
+            P.waterY + 0.03,
+            -5 + srand() * 3
+        );
+        plank.rotation.y = srand() * Math.PI;
+        plank.rotation.z = (srand() - 0.5) * 0.1;
+        plank.name = `floating_plank_${i}`;
+        g.add(plank);
+    }
+
+    // Broken anchor chain on quay near bollard 2
+    for (let i = 0; i < 5; i++) {
+        const link = new THREE.Mesh(
+            new THREE.TorusGeometry(0.06, 0.015, 6, 12),
+            matRustyMetal
+        );
+        link.position.set(0.3 + i * 0.12, P.quaySurfaceY + 0.03, P.quayEdgeZ + 0.5);
+        link.rotation.x = -Math.PI / 2 + (i % 2) * Math.PI / 2;
+        link.rotation.z = i * 0.1;
+        g.add(shad(link));
+    }
+}
+
+// ══════════════════════════════════════════════════════════
+//  BUILD: Atmosphere details — seagull perch, distant rocks
+// ══════════════════════════════════════════════════════════
+function buildAtmosphere(g) {
+    // Distant rocks in water
+    const rockPositions = [
+        { x: -14, z: -10, r: 1.2 },
+        { x: -11, z: -12, r: 0.8 },
+        { x: 12, z: -14, r: 1.5 },
+        { x: 15, z: -11, r: 0.6 },
+    ];
+    rockPositions.forEach((rp, i) => {
+        const rock = new THREE.Mesh(
+            new THREE.SphereGeometry(rp.r, 8, 6, 0, Math.PI * 2, 0, Math.PI * 0.6),
+            matStoneDark
+        );
+        rock.position.set(rp.x, P.waterY - rp.r * 0.2, rp.z);
+        rock.rotation.y = srand() * Math.PI;
+        rock.name = `rock_${i}`;
+        g.add(shad(rock));
+    });
+
+    // A few simple seagull shapes (tiny white cones) on mast and crane
+    const birdMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.8 });
+    [[P.shipX, P.shipDeckY + P.mastStumpH + 0.2, P.shipZ - 0.5],
+     [P.craneX, P.quaySurfaceY + P.cranePostH + 0.5, P.craneZ],
+     [P.bollardPositions[2], P.quaySurfaceY + P.bollardH + 0.15, P.quayEdgeZ + 0.2]
+    ].forEach((pos, i) => {
+        const bird = cyl(0, 0.06, 0.12, 6, birdMat);
+        bird.position.set(pos[0], pos[1], pos[2]);
+        bird.name = `seagull_${i}`;
+        g.add(bird);
+    });
+}
+
+// ══════════════════════════════════════════════════════════
+//  MAIN BUILD
+// ══════════════════════════════════════════════════════════
+function buildModel(scene) {
+    const g = new THREE.Group();
+    g.name = 'dock_root';
+
+    buildWater(g);
+    buildQuay(g);
+    buildPier(g);
+    buildShip(g);
+    buildCrane(g);
+    buildBollards(g);
+    buildDebris(g);
+    buildAtmosphere(g);
+
+    scene.add(g);
+    return g;
+}
+
+// ══════════════════════════════════════════════════════════
+//  SCENE SETUP — Overcast exterior
+// ══════════════════════════════════════════════════════════
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#8a9aa4');
+scene.fog = new THREE.FogExp2('#8a9aa4', 0.012);
+
+const camera = new THREE.PerspectiveCamera(
+    50, window.innerWidth / window.innerHeight, 0.1, 200
+);
+camera.position.set(14, 8, 12);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+document.body.appendChild(renderer.domElement);
+
+// ── Overcast Lighting ──
+// Soft ambient (overcast sky)
+const ambient = new THREE.AmbientLight(0xb0b8c0, 0.6);
+scene.add(ambient);
+
+// Weak sun through clouds
+const sunLight = new THREE.DirectionalLight(0xd0c8b0, 0.7);
+sunLight.position.set(-10, 15, 8);
+sunLight.castShadow = true;
+sunLight.shadow.mapSize.set(2048, 2048);
+sunLight.shadow.camera.near = 0.5;
+sunLight.shadow.camera.far = 60;
+sunLight.shadow.camera.left = -25;
+sunLight.shadow.camera.right = 25;
+sunLight.shadow.camera.top = 25;
+sunLight.shadow.camera.bottom = -25;
+scene.add(sunLight);
+
+// Fill (sky bounce)
+const fillLight = new THREE.DirectionalLight(0x8899aa, 0.3);
+fillLight.position.set(8, 5, -12);
+scene.add(fillLight);
+
+// Warm accent from imagined distant sunset
+const warmFill = new THREE.DirectionalLight(0xffccaa, 0.15);
+warmFill.position.set(-15, 3, -5);
+scene.add(warmFill);
+
+// Build
+const model = buildModel(scene);
+
+// Controls
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.target.set(0, 1.0, -2);
+
+// Render loop
+function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+}
+animate();
+
+// Resize
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>

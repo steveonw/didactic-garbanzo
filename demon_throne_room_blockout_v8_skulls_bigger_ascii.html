@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Demon Throne Room Blockout</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { overflow: hidden; background: #1a1a2e; }
+  canvas { display: block; }
+  #info {
+    position: fixed; top: 12px; left: 12px;
+    color: #aaa; font: 13px/1.4 monospace;
+    background: rgba(0,0,0,0.5); padding: 8px 12px;
+    border-radius: 6px; pointer-events: none;
+    max-width: 320px;
+  }
+</style>
+</head>
+<body>
+
+<div id="info">
+  <strong>Demon Throne Room Blockout</strong><br>
+  Orbit: drag &middot; Zoom: scroll &middot; Pan: right-drag
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // Make THREE available globally for buildModel compatibility
+    window.THREE = THREE;
+
+    // ══════════════════════════════════════════════════════════
+    //  PARAMETERS
+    // ══════════════════════════════════════════════════════════
+    // ── Central parameters ──────────────────────────────────
+    // Edit these, everything else derives from them.
+    const PARAMS = {
+        // overall
+        unit: 'm',
+        groundY: 0,
+
+        // room shell (X=width, Y=height, Z=depth)
+        roomWidth: 20,
+        roomDepth: 34,
+        roomHeight: 14,
+        wallThickness: 0.6,
+        floorThickness: 0.8,
+
+        // aisle / lava channels
+        aisleWidth: 6,
+        lavaChannelWidth: 2.2,
+        lavaChannelDepth: 0.4,
+        lavaInsetFromWall: 2.0,
+
+        // columns
+        colCountPerSide: 4,
+        colRadius: 0.7,
+        colHeight: 10,
+        colInsetFromWall: 2.2,
+        colFirstZ: -10,
+        colZSpacing: 6.2,
+
+        // dais + steps (back of room)
+        daisWidth: 10,
+        daisDepth: 6,
+        daisHeight: 1.4,
+        stepCount: 5,
+        stepRise: 0.28,
+        stepRun: 0.55,
+
+        // throne placeholder
+        throneWidth: 3.5,
+        throneDepth: 2.2,
+        throneHeight: 5.2,
+
+        // skull props
+        skullW: 0.16,
+        skullH: 0.22,
+        skullD: 0.20,
+        skullJawH: 0.07,
+        skullEyeInset: 0.03,
+        skullScaleJitter: 0.08,
+        skullYawJitterDeg: 35,
+        skullGlobalScale: 1.6,
+        skullStackChance: 0.22,
+
+        // skull clusters
+        skullClusterRadius: 0.9,
+        skullClusterMin: 8,
+        skullClusterMax: 14,
+        skullAisleClear: 0.5,
+
+        // throne crown spikes
+        crownSpikeCount: 9,
+        crownSpikeMinH: 0.8,
+        crownSpikeMaxH: 2.2,
+        crownSpikeW: 0.42,
+        crownSpikeD: 0.55,
+        crownSpikeBaseInset: 0.18,
+
+        // braziers
+        brazierCountPerSide: 2,
+        brazierRadius: 1.1,
+        brazierHeight: 1.6,
+        brazierZ: [-4, 4],
+        brazierXOffsetFromAisle: 4.7,
+
+        // camera helpers
+        targetY: 3.0,
+    };
+
+    // ══════════════════════════════════════════════════════════
+    //  BUILD MODEL
+    // ══════════════════════════════════════════════════════════
+    function buildModel(scene) {
+        const root = new THREE.Group();
+        root.name = 'throne_room_root';
+
+        // ── Materials (blockout: high-contrast zones) ──
+        const matFloor = new THREE.MeshStandardMaterial({ color: 0x2a2424, roughness: 0.9, metalness: 0.0 });
+        const matWall  = new THREE.MeshStandardMaterial({ color: 0x2e2b33, roughness: 0.95, metalness: 0.0, side: THREE.DoubleSide });
+        const matStone = new THREE.MeshStandardMaterial({ color: 0x3a2f2f, roughness: 0.9, metalness: 0.05 });
+        const matMetal = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.45, metalness: 0.8 });
+        const matLava  = new THREE.MeshStandardMaterial({ color: 0xff4a1a, roughness: 0.25, metalness: 0.0, emissive: 0xff2a00, emissiveIntensity: 1.2 });
+        const matRug   = new THREE.MeshStandardMaterial({ color: 0x5a1010, roughness: 0.85, metalness: 0.0 });
+        const matBone  = new THREE.MeshStandardMaterial({ color: 0xb7b0a6, roughness: 0.95, metalness: 0.0 });
+        const matDark  = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 1.0, metalness: 0.0 });
+
+        const halfW = PARAMS.roomWidth / 2;
+        const halfD = PARAMS.roomDepth / 2;
+
+        function box(name, w, h, d, mat) {
+            const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+            m.name = name;
+            m.castShadow = true;
+            m.receiveShadow = true;
+            return m;
+        }
+        function cyl(name, rTop, rBot, h, mat, radialSeg=16) {
+            const m = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, h, radialSeg), mat);
+            m.name = name;
+            m.castShadow = true;
+            m.receiveShadow = true;
+            return m;
+        }
+
+
+        // Deterministic PRNG for repeatable scattering
+        function mulberry32(seed) {
+            let t = (seed >>> 0);
+            return function() {
+                t += 0x6D2B79F5;
+                let x = t;
+                x = Math.imul(x ^ (x >>> 15), x | 1);
+                x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+                return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+            };
+        }
+
+        // Simple skull blockout: cranium + jaw + eye sockets
+        function makeSkull(name) {
+            const g = new THREE.Group();
+            g.name = name;
+
+            const skullMat = matBone;
+            const eyeMat = matDark;
+
+            const W = PARAMS.skullW;
+            const H = PARAMS.skullH;
+            const D = PARAMS.skullD;
+            const jawH = PARAMS.skullJawH;
+
+            // cranium (slightly squashed sphere for readability)
+            const cran = new THREE.Mesh(
+                new THREE.SphereGeometry(0.5, 14, 10),
+                skullMat
+            );
+            cran.scale.set(W, H * 0.75, D);
+            cran.position.set(0, H * 0.60, 0);
+            cran.castShadow = true;
+            cran.receiveShadow = true;
+            g.add(cran);
+
+            // jaw (box, slightly forward)
+            const jaw = new THREE.Mesh(
+                new THREE.BoxGeometry(W * 0.95, jawH, D * 0.85),
+                skullMat
+            );
+            jaw.position.set(0, jawH * 0.5, D * 0.08);
+            jaw.castShadow = true;
+            jaw.receiveShadow = true;
+            g.add(jaw);
+
+            // eye sockets (simple dark boxes)
+            const eyeW = W * 0.22;
+            const eyeH = H * 0.18;
+            const eyeD = D * 0.20;
+            const eyeY = H * 0.62;
+            const eyeZ = D * 0.33;
+            const eyeX = W * 0.22;
+
+            const eyeL = new THREE.Mesh(new THREE.BoxGeometry(eyeW, eyeH, eyeD), eyeMat);
+            eyeL.position.set(-eyeX, eyeY, eyeZ);
+            g.add(eyeL);
+            const eyeR = eyeL.clone();
+            eyeR.position.x = eyeX;
+            g.add(eyeR);
+
+            // center g on its own bounds roughly (bottom at y=0)
+            return g;
+        }
+
+        // ── Floor slab ──
+        const floor = box('floor', PARAMS.roomWidth, PARAMS.floorThickness, PARAMS.roomDepth, matFloor);
+        floor.position.y = PARAMS.groundY + PARAMS.floorThickness / 2;
+        root.add(floor);
+
+        // ── Walls (left/right/back). Front kept open for camera ──
+        const wallH = PARAMS.roomHeight;
+        const t = PARAMS.wallThickness;
+        const wallY = PARAMS.groundY + PARAMS.floorThickness + wallH / 2;
+
+        const wallL = box('wall_left', t, wallH, PARAMS.roomDepth, matWall);
+        wallL.position.set(-halfW + t/2, wallY, 0);
+        root.add(wallL);
+
+        const wallR = box('wall_right', t, wallH, PARAMS.roomDepth, matWall);
+        wallR.position.set( halfW - t/2, wallY, 0);
+        root.add(wallR);
+
+        const wallB = box('wall_back', PARAMS.roomWidth, wallH, t, matWall);
+        wallB.position.set(0, wallY, -halfD + t/2);
+        root.add(wallB);
+
+        // ── Ceiling (simple arch ribs) ──
+        const ribCount = 6;
+        for (let i = 0; i < ribCount; i++) {
+            const z = (-halfD + 3) + i * (PARAMS.roomDepth - 6) / (ribCount - 1);
+            const rib = box(`ceiling_rib_${i}`, PARAMS.roomWidth, 0.6, 0.8, matStone);
+            rib.position.set(0, PARAMS.groundY + PARAMS.floorThickness + wallH - 0.3, z);
+            root.add(rib);
+        }
+
+        // ── Lava channels (left/right) ──
+        const lavaY = PARAMS.groundY + PARAMS.floorThickness - PARAMS.lavaChannelDepth / 2 + 0.02;
+        const lavaZ = 0;
+
+        const leftLavaX  = -(PARAMS.aisleWidth/2 + PARAMS.lavaChannelWidth/2);
+        const rightLavaX =  (PARAMS.aisleWidth/2 + PARAMS.lavaChannelWidth/2);
+
+        const lavaLeft = box('lava_left', PARAMS.lavaChannelWidth, PARAMS.lavaChannelDepth, PARAMS.roomDepth - 6, matLava);
+        lavaLeft.position.set(leftLavaX, lavaY, lavaZ);
+        root.add(lavaLeft);
+
+        const lavaRight = box('lava_right', PARAMS.lavaChannelWidth, PARAMS.lavaChannelDepth, PARAMS.roomDepth - 6, matLava);
+        lavaRight.position.set(rightLavaX, lavaY, lavaZ);
+        root.add(lavaRight);
+
+        // ── Central rug / aisle marker ──
+        const rug = box('rug', PARAMS.aisleWidth - 0.4, 0.08, PARAMS.roomDepth - 6, matRug);
+        rug.position.set(0, PARAMS.groundY + PARAMS.floorThickness + 0.04, 0);
+        root.add(rug);
+
+        // ── Columns (4 per side) ──
+        const colY = PARAMS.groundY + PARAMS.floorThickness + PARAMS.colHeight / 2;
+        const colX = halfW - PARAMS.colInsetFromWall;
+        for (let i = 0; i < PARAMS.colCountPerSide; i++) {
+            const z = PARAMS.colFirstZ + i * PARAMS.colZSpacing;
+
+            const cL = cyl(`col_L_${i}`, PARAMS.colRadius, PARAMS.colRadius, PARAMS.colHeight, matStone);
+            cL.position.set(-colX, colY, z);
+            root.add(cL);
+
+            const cR = cyl(`col_R_${i}`, PARAMS.colRadius, PARAMS.colRadius, PARAMS.colHeight, matStone);
+            cR.position.set( colX, colY, z);
+            root.add(cR);
+
+            // simple capital
+            const capH = 0.6;
+            const capW = 1.8;
+            const capD = 1.8;
+            const capYL = PARAMS.groundY + PARAMS.floorThickness + PARAMS.colHeight + capH/2;
+            const capL = box(`cap_L_${i}`, capW, capH, capD, matStone);
+            capL.position.set(-colX, capYL, z);
+            root.add(capL);
+
+            const capR = box(`cap_R_${i}`, capW, capH, capD, matStone);
+            capR.position.set( colX, capYL, z);
+            root.add(capR);
+        }
+
+        // ── Dais platform + steps ──
+        const daisTopY = PARAMS.groundY + PARAMS.floorThickness + PARAMS.daisHeight;
+        const dais = box('dais', PARAMS.daisWidth, PARAMS.daisHeight, PARAMS.daisDepth, matStone);
+        dais.position.set(0, PARAMS.groundY + PARAMS.floorThickness + PARAMS.daisHeight/2, -halfD + t + PARAMS.daisDepth/2 + 0.2);
+        root.add(dais);
+
+        // steps extend toward camera (positive Z direction)
+        const stepTotalRise = PARAMS.stepCount * PARAMS.stepRise;
+        for (let i = 0; i < PARAMS.stepCount; i++) {
+            const h = (i + 1) * PARAMS.stepRise;
+            const d = PARAMS.daisDepth + (i + 1) * PARAMS.stepRun;
+            const step = box(`step_${i}`, PARAMS.daisWidth * 0.85, h, d, matStone);
+            // align back faces with dais back face
+            const backZ = dais.position.z - PARAMS.daisDepth/2;
+            const stepCenterZ = backZ + d/2;
+            step.position.set(0, PARAMS.groundY + PARAMS.floorThickness + h/2, stepCenterZ);
+            root.add(step);
+        }
+
+        // ── Throne placeholder (no character) ──
+        const throneBaseH = 0.6;
+        const throneBackH = PARAMS.throneHeight;
+        const throneZ = dais.position.z - PARAMS.daisDepth/2 + PARAMS.throneDepth/2 + 0.4;
+
+        const throneBase = box('throne_base', PARAMS.throneWidth, throneBaseH, PARAMS.throneDepth, matMetal);
+        throneBase.position.set(0, daisTopY + throneBaseH/2, throneZ);
+        root.add(throneBase);
+
+        const throneBack = box('throne_back', PARAMS.throneWidth * 0.9, throneBackH, 0.4, matMetal);
+        throneBack.position.set(0, daisTopY + throneBackH/2, throneZ - PARAMS.throneDepth/2 + 0.2);
+        root.add(throneBack);
+
+        // jagged side fins (simple wedges)
+        const finH = throneBackH * 0.75;
+        const fin = box('throne_fin_L', 0.35, finH, 1.05, matMetal);
+        fin.position.set(-PARAMS.throneWidth*0.48, daisTopY + finH/2 + 0.3, throneBack.position.z + 0.15);
+        fin.rotation.y = 0.28;
+        root.add(fin);
+        const finR = fin.clone();
+        finR.name = 'throne_fin_R';
+        finR.position.x *= -1;
+        finR.rotation.y *= -1;
+        root.add(finR);
+
+        // crown spikes (silhouette along the top)
+        const crownTopY = daisTopY + throneBackH;
+        const crownZ = throneBack.position.z;
+        for (let i = 0; i < PARAMS.crownSpikeCount; i++) {
+            const t01 = (PARAMS.crownSpikeCount === 1) ? 0.5 : (i / (PARAMS.crownSpikeCount - 1));
+            const x = (t01 - 0.5) * (PARAMS.throneWidth * 0.95);
+            const centerBias = 1.0 - Math.abs(t01 - 0.5) * 2.0;
+            const h = PARAMS.crownSpikeMinH + (PARAMS.crownSpikeMaxH - PARAMS.crownSpikeMinH) * (0.35 + 0.65 * centerBias);
+            const spike = box(`crown_spike_${i}`, PARAMS.crownSpikeW, h, PARAMS.crownSpikeD, matMetal);
+            spike.position.set(x, crownTopY + h/2 - PARAMS.crownSpikeBaseInset, crownZ);
+            spike.rotation.z = (x >= 0 ? -1 : 1) * 0.10 * (0.2 + Math.abs(x) / (PARAMS.throneWidth));
+            root.add(spike);
+        }
+
+        // skull centerpiece at top-mid (center piece)
+        const topSkull = makeSkull('throne_top_skull');
+        const skullScale = PARAMS.skullGlobalScale * 1.25;
+        topSkull.scale.setScalar(skullScale);
+        topSkull.rotation.y = Math.PI;
+        topSkull.position.set(0, crownTopY + PARAMS.skullH * skullScale * 0.55, crownZ);
+        root.add(topSkull);
+
+        // ── Braziers + emissive "fire" blocks ──
+        const brazY = PARAMS.groundY + PARAMS.floorThickness + PARAMS.brazierHeight/2;
+        for (let i = 0; i < PARAMS.brazierCountPerSide; i++) {
+            const z = PARAMS.brazierZ[i] ?? (i * 6 - 3);
+            const xL = -PARAMS.brazierXOffsetFromAisle;
+            const xR =  PARAMS.brazierXOffsetFromAisle;
+
+            const bL = cyl(`brazier_L_${i}`, PARAMS.brazierRadius, PARAMS.brazierRadius*0.8, PARAMS.brazierHeight, matStone, 18);
+            bL.position.set(xL, brazY, z);
+            root.add(bL);
+
+            const bR = cyl(`brazier_R_${i}`, PARAMS.brazierRadius, PARAMS.brazierRadius*0.8, PARAMS.brazierHeight, matStone, 18);
+            bR.position.set(xR, brazY, z);
+            root.add(bR);
+
+            const fireH = 2.2;
+            const fire = box(`fire_L_${i}`, 0.9, fireH, 0.9, matLava);
+            fire.position.set(xL, PARAMS.groundY + PARAMS.floorThickness + PARAMS.brazierHeight + fireH/2 - 0.2, z);
+            root.add(fire);
+
+            const fire2 = fire.clone();
+            fire2.name = `fire_R_${i}`;
+            fire2.position.x = xR;
+            root.add(fire2);
+
+            // point lights to sell the mood
+            const pL = new THREE.PointLight(0xff6a2a, 1.6, 18);
+            pL.position.set(xL, PARAMS.groundY + PARAMS.floorThickness + PARAMS.brazierHeight + 1.6, z);
+            pL.castShadow = true;
+            root.add(pL);
+
+            const pR = pL.clone();
+            pR.position.x = xR;
+            root.add(pR);
+        }
+
+        scene.add(root);
+
+        // ── Skull clusters (props) ──
+        const rng = mulberry32(1337);
+        const aisleHalf = PARAMS.aisleWidth / 2;
+        const safeAisleX = aisleHalf + PARAMS.skullAisleClear;
+
+        // choose cluster anchors relative to dais and mid-room
+        const anchors = [
+            { name: 'cluster_dais_L', x: - (safeAisleX + 1.2), z: dais.position.z + PARAMS.daisDepth*0.05 },
+            { name: 'cluster_dais_R', x:   (safeAisleX + 1.2), z: dais.position.z + PARAMS.daisDepth*0.05 },
+            { name: 'cluster_mid_L',  x: - (safeAisleX + 1.0), z: -2 },
+            { name: 'cluster_mid_R',  x:   (safeAisleX + 1.0), z: -2 },
+            { name: 'cluster_front_L',x: - (safeAisleX + 1.4), z: halfD*0.32 },
+        ];
+
+        function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
+        for (const a of anchors) {
+            const count = Math.floor(PARAMS.skullClusterMin + rng() * (PARAMS.skullClusterMax - PARAMS.skullClusterMin + 1));
+            for (let i = 0; i < count; i++) {
+                const ang = rng() * Math.PI * 2;
+                const rad = PARAMS.skullClusterRadius * Math.sqrt(rng());
+                let x = a.x + Math.cos(ang) * rad;
+                let z = a.z + Math.sin(ang) * rad;
+
+                // keep out of aisle
+                if (Math.abs(x) < safeAisleX) x = Math.sign(x || 1) * safeAisleX;
+
+                const scale = PARAMS.skullGlobalScale * (1.0 + (rng() * 2 - 1) * PARAMS.skullScaleJitter);
+                const yaw = THREE.MathUtils.degToRad((rng() * 2 - 1) * PARAMS.skullYawJitterDeg);
+
+                const skull = makeSkull(`${a.name}_skull_${i}`);
+                skull.scale.setScalar(scale);
+                skull.rotation.y = yaw;
+                skull.position.set(x, PARAMS.groundY + PARAMS.floorThickness + (PARAMS.skullH * scale)/2, z);
+                root.add(skull);
+
+                // chance of a 2-high mini stack
+                if (rng() < PARAMS.skullStackChance) {
+                    const skull2 = makeSkull(`${a.name}_skull_${i}_top`);
+                    const scale2 = scale * (0.96 + rng() * 0.06);
+                    skull2.scale.setScalar(scale2);
+                    skull2.rotation.y = yaw + (rng()*0.6 - 0.3);
+                    skull2.position.set(x + (rng()*0.06 - 0.03),
+                        PARAMS.groundY + PARAMS.floorThickness + (PARAMS.skullH * scale) + (PARAMS.skullH * scale2)/2,
+                        z + (rng()*0.06 - 0.03));
+                    root.add(skull2);
+                }
+            }
+        }
+
+        return root;
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  SCENE SETUP (usually no need to edit below)
+    // ══════════════════════════════════════════════════════════
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#0b0a10');
+    scene.fog = new THREE.Fog('#0b0a10', 60, 160);
+
+    const camera = new THREE.PerspectiveCamera(
+        50, window.innerWidth / window.innerHeight, 0.1, 500
+    );
+    camera.position.set(0, 10, 26);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    document.body.appendChild(renderer.domElement);
+
+    // Lighting
+    const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+    scene.add(ambient);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(15, 25, 20);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.set(1024, 1024);
+    dirLight.shadow.camera.near = 0.5;
+    dirLight.shadow.camera.far = 80;
+    dirLight.shadow.camera.left = -20;
+    dirLight.shadow.camera.right = 20;
+    dirLight.shadow.camera.top = 20;
+    dirLight.shadow.camera.bottom = -20;
+    scene.add(dirLight);
+
+    const fillLight = new THREE.DirectionalLight(0x8899bb, 0.3);
+    fillLight.position.set(-10, 8, -10);
+    scene.add(fillLight);
+
+        const gridHelper = new THREE.GridHelper(40, 40, 0x444444, 0x222222);
+        scene.add(gridHelper);
+
+        const axesHelper = new THREE.AxesHelper(8);
+        scene.add(axesHelper);
+
+    // Build
+    const model = buildModel(scene);
+
+    // Controls (real OrbitControls with touch, keyboard, damping)
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.target.set(0, PARAMS.targetY, -6);
+
+    // Render loop
+    function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+    }
+    animate();
+
+    // Resize
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+</script>
+</body>
+</html>
