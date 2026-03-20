@@ -1,0 +1,1458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Medieval Inn — Walk Through</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { overflow: hidden; background: #0a0a12; }
+  canvas { display: block; }
+  #info {
+    position: fixed; top: 12px; left: 12px;
+    color: #aaa; font: 13px/1.4 monospace;
+    background: rgba(0,0,0,0.5); padding: 8px 12px;
+    border-radius: 6px; pointer-events: none;
+    max-width: 320px;
+  }
+</style>
+</head>
+<body>
+
+<div id="info">
+  <strong>Medieval Inn — Walk Through</strong><br>
+  Orbit: drag &middot; Zoom: scroll &middot; Pan: right-drag
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // Make THREE available globally for buildModel compatibility
+    window.THREE = THREE;
+
+    // ══════════════════════════════════════════════════════════
+    //  PARAMETERS
+    // ══════════════════════════════════════════════════════════
+    // ── Central parameters ──────────────────────────────────
+    // Edit these, everything else derives from them.
+    const PARAMS = {
+        // overall
+        unit: 'm',
+        groundY: 0,
+
+        // example part
+        baseWidth: 4,
+        baseDepth: 3,
+        baseHeight: 0.5,
+    };
+
+    // ══════════════════════════════════════════════════════════
+    //  MATERIAL PALETTE
+    // ══════════════════════════════════════════════════════════
+    const _matCache = {};
+    function matByName(name) {
+        if (_matCache[name]) return _matCache[name];
+        const palette = {
+            stone:      { color: 0xc4b8a8, roughness: 0.85, metalness: 0.0 },
+            brick:      { color: 0xa0522d, roughness: 0.75, metalness: 0.0 },
+            metal:      { color: 0x555555, roughness: 0.45, metalness: 0.8 },
+            metal_pol:  { color: 0xcccccc, roughness: 0.15, metalness: 0.95 },
+            wood:       { color: 0x5c3a1e, roughness: 0.80, metalness: 0.0 },
+            wood_furn:  { color: 0x8b6914, roughness: 0.70, metalness: 0.0 },
+            wood_dark:  { color: 0x5c3a1e, roughness: 0.80, metalness: 0.0 },
+            plaster:    { color: 0xd4c5a9, roughness: 0.90, metalness: 0.0 },
+            floor:      { color: 0x6b4423, roughness: 0.85, metalness: 0.0 },
+            grass:      { color: 0x556b2f, roughness: 0.90, metalness: 0.0 },
+            marble:     { color: 0xf0ece0, roughness: 0.40, metalness: 0.0 },
+            accent:     { color: 0xcc4444, roughness: 0.50, metalness: 0.0 },
+            roof:       { color: 0x8b3a3a, roughness: 0.75, metalness: 0.0 },
+            cloth:      { color: 0x4444aa, roughness: 0.85, metalness: 0.0 },
+            cloth_dark: { color: 0x333355, roughness: 0.85, metalness: 0.0 },
+            skin:       { color: 0xddaa88, roughness: 0.70, metalness: 0.0 },
+            leaf:       { color: 0x33aa44, roughness: 0.75, metalness: 0.0 },
+        };
+        const props = palette[name];
+        let mat;
+        if (name === 'glass') {
+            mat = new THREE.MeshPhysicalMaterial({ color: 0x88bbdd, transmission: 0.9, roughness: 0.05 });
+        } else if (props) {
+            mat = new THREE.MeshStandardMaterial(props);
+        } else {
+            // Try parsing as hex color string
+            if (typeof name === 'string' && name.startsWith('#')) {
+                mat = new THREE.MeshStandardMaterial({ color: parseInt(name.slice(1), 16), roughness: 0.75 });
+            } else {
+                mat = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.80, metalness: 0.1 });
+            }
+        }
+        _matCache[name] = mat;
+        return mat;
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  BUILD MODEL
+    // ══════════════════════════════════════════════════════════
+    
+    function buildModel(scene) {
+// ═══ MEDIEVAL INN INTERIOR ═══
+
+// ── Floor ──
+
+    (() => {
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(18,17), matByName('floor'));
+        floor.rotation.x = -Math.PI/2; floor.position.set(0.0, 0, 0.0);
+        floor.receiveShadow = true; scene.add(floor);
+    })();
+// ── Ceiling ──
+
+    (() => {
+        const ceil = new THREE.Mesh(new THREE.PlaneGeometry(17.5,16.5), matByName('wood'));
+        ceil.rotation.x = Math.PI/2; ceil.position.set(0.0, 3.0, 0.0);
+        ceil.receiveShadow = true; scene.add(ceil);
+    })();
+
+// ── Exterior walls ──
+// South wall - entrance
+
+    (() => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(4.9,3.0,0.25), matByName('stone'));
+        m.position.set(-6.05,1.5,-8.0); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    })();
+    (() => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(10.9,3.0,0.25), matByName('stone'));
+        m.position.set(3.0500000000000003,1.5,-8.0); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    })();
+    (() => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(1.2,0.7999999999999998,0.25), matByName('stone'));
+        m.position.set(-3.0,2.6,-8.0); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    })();
+// North wall
+
+    (() => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(17,3.0,0.25), matByName('stone'));
+        m.position.set(0.0,1.5,8.0); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    })();
+// West wall
+
+    (() => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(0.25,3.0,16), matByName('stone'));
+        m.position.set(-8.5,1.5,0.0); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    })();
+// East wall
+
+    (() => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(0.25,3.0,16), matByName('stone'));
+        m.position.set(8.5,1.5,0.0); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    })();
+
+// ── Interior walls ──
+// Bar-Kitchen wall
+
+    (() => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(0.25,3.0,3.4000000000000004), matByName('plaster'));
+        m.position.set(2.5,1.5,-6.3); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    })();
+    (() => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(0.25,3.0,3.4), matByName('plaster'));
+        m.position.set(2.5,1.5,-1.7); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    })();
+    (() => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(0.25,0.7999999999999998,1.2), matByName('plaster'));
+        m.position.set(2.5,2.6,-4.0); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    })();
+// Hallway south wall (bar side)
+
+    (() => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(4.9,3.0,0.25), matByName('plaster'));
+        m.position.set(-6.05,1.5,0.0); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    })();
+    (() => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(10.9,3.0,0.25), matByName('plaster'));
+        m.position.set(3.0500000000000003,1.5,0.0); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    })();
+    (() => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(1.2,0.7999999999999998,0.25), matByName('plaster'));
+        m.position.set(-3.0,2.6,0.0); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    })();
+// Hallway north wall - 3 bedroom doors
+
+    (() => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(2.15,3.0,0.25), matByName('plaster'));
+        m.position.set(-7.425,1.5,2.5); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    })();
+
+    (() => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(1.2,0.7999999999999998,0.25), matByName('plaster'));
+        m.position.set(-5.75,2.6,2.5); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    })();
+
+    (() => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(4.550000000000001,3.0,0.25), matByName('plaster'));
+        m.position.set(-2.875,1.5,2.5); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    })();
+
+    (() => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(1.2,0.7999999999999998,0.25), matByName('plaster'));
+        m.position.set(0.0,2.6,2.5); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    })();
+
+    (() => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(4.550000000000001,3.0,0.25), matByName('plaster'));
+        m.position.set(2.875,1.5,2.5); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    })();
+
+    (() => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(1.2,0.7999999999999998,0.25), matByName('plaster'));
+        m.position.set(5.75,2.6,2.5); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    })();
+
+    (() => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(2.1500000000000004,3.0,0.25), matByName('plaster'));
+        m.position.set(7.425000000000001,1.5,2.5); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    })();
+// BR1-BR2 divider
+
+    (() => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(0.25,3.0,5.5), matByName('plaster'));
+        m.position.set(-3.0,1.5,5.25); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    })();
+// BR2-BR3 divider
+
+    (() => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(0.25,3.0,5.5), matByName('plaster'));
+        m.position.set(3.0,1.5,5.25); m.castShadow=true; m.receiveShadow=true; scene.add(m);
+    })();
+
+// ── Fireplace (west wall of bar) ──
+
+    (() => {
+        // Fireplace surround
+        const surround = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.8, 2.0), matByName('stone'));
+        surround.position.set(-8.2, 0.9, -4.0); surround.castShadow=true; scene.add(surround);
+        // Mantel
+        const mantel = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.1, 2.4), matByName('wood_dark'));
+        mantel.position.set(-8.2, 1.85, -4.0); scene.add(mantel);
+        // Fire opening (dark recess)
+        const opening = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.8, 1.0), matByName('#111111'));
+        opening.position.set(-8.05, 0.5, -4.0); scene.add(opening);
+        // Fire glow (emissive)
+        const fireMat = new THREE.MeshStandardMaterial({ color: 0xff4400, emissive: 0xff2200, emissiveIntensity: 2.0 });
+        const fire = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.3, 0.6), fireMat);
+        fire.position.set(-8.0, 0.25, -4.0); scene.add(fire);
+        // Firelight (point light)
+        const fireLight = new THREE.PointLight(0xff6633, 1.5, 8);
+        fireLight.position.set(-7.7, 1.0, -4.0); scene.add(fireLight);
+    })();
+// ─── Auto-generated from template library ─────
+// Requires matByName() — provided by scaffold.py's material palette.
+// Centered: offset (8.5, 8.0) subtracted from all positions.
+
+function build_bar_counter(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'bar_counter';
+
+  const part0 = new THREE.Mesh(
+    new THREE.BoxGeometry(5, 1.1, 0.6),
+    matByName(params.color || 'wood_dark')
+  );
+  part0.position.set(0, 0.55, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.BoxGeometry(5.2, 0.08, 0.75),
+    matByName(params.color || 'wood_furn')
+  );
+  part1.position.set(0, 1.12, 0);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  const part2 = new THREE.Mesh(
+    new THREE.BoxGeometry(4.8, 0.6, 0.04),
+    matByName(params.color || 'wood')
+  );
+  part2.position.set(0, 0.3, 0.28);
+  part2.castShadow = true;
+  part2.receiveShadow = true;
+  group.add(part2);
+
+  return group;
+}
+
+function build_barrel(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'barrel';
+
+  const part0 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.35, 0.35, 0.9, 16),
+    matByName('wood_furn')
+  );
+  part0.position.set(0, 0.45, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.37, 0.37, 0.06, 16),
+    matByName('metal')
+  );
+  part1.position.set(0, 0.15, 0);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  const part2 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.37, 0.37, 0.06, 16),
+    matByName('metal')
+  );
+  part2.position.set(0, 0.75, 0);
+  part2.castShadow = true;
+  part2.receiveShadow = true;
+  group.add(part2);
+
+  return group;
+}
+
+function build_bed(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'bed';
+
+  const part0 = new THREE.Mesh(
+    new THREE.BoxGeometry(1.2, 0.35, 2.0),
+    matByName(params.color || 'wood_dark')
+  );
+  part0.position.set(0, 0.18, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.BoxGeometry(1.1, 0.15, 1.9),
+    matByName(params.color || 'cloth')
+  );
+  part1.position.set(0, 0.42, 0);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  const part2 = new THREE.Mesh(
+    new THREE.BoxGeometry(1.1, 0.08, 0.5),
+    matByName(params.color || 'plaster')
+  );
+  part2.position.set(0, 0.5, -0.7);
+  part2.castShadow = true;
+  part2.receiveShadow = true;
+  group.add(part2);
+
+  const part3 = new THREE.Mesh(
+    new THREE.BoxGeometry(1.2, 0.7, 0.08),
+    matByName(params.color || 'wood_dark')
+  );
+  part3.position.set(0, 0.52, 0.96);
+  part3.castShadow = true;
+  part3.receiveShadow = true;
+  group.add(part3);
+
+  return group;
+}
+
+function build_bottle(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'bottle';
+
+  const part0 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.035, 0.035, 0.2, 16),
+    matByName('#224422')
+  );
+  part0.position.set(0, 0.1, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.015, 0.015, 0.08, 16),
+    matByName('#224422')
+  );
+  part1.position.set(0, 0.24, 0);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  return group;
+}
+
+function build_candle(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'candle';
+
+  const part0 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.06, 0.06, 0.03, 16),
+    matByName('metal')
+  );
+  part0.position.set(0, 0.015, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.02, 0.02, 0.12, 16),
+    matByName('plaster')
+  );
+  part1.position.set(0, 0.09, 0);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  const part2 = new THREE.Mesh(
+    new THREE.SphereGeometry(0.02, 16, 12),
+    matByName('#ffaa22')
+  );
+  part2.position.set(0, 0.17, 0);
+  part2.castShadow = true;
+  part2.receiveShadow = true;
+  group.add(part2);
+
+  return group;
+}
+
+function build_candle_holder(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'candle_holder';
+
+  const part0 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.04, 0.04, 0.02, 16),
+    matByName('metal')
+  );
+  part0.position.set(0, 0.01, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.01, 0.01, 0.15, 16),
+    matByName('metal')
+  );
+  part1.position.set(0, 0.09, 0);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  const part2 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.015, 0.015, 0.1, 16),
+    matByName('plaster')
+  );
+  part2.position.set(0, 0.21, 0);
+  part2.castShadow = true;
+  part2.receiveShadow = true;
+  group.add(part2);
+
+  const part3 = new THREE.Mesh(
+    new THREE.SphereGeometry(0.015, 16, 12),
+    matByName('#ffaa22')
+  );
+  part3.position.set(0, 0.28, 0);
+  part3.castShadow = true;
+  part3.receiveShadow = true;
+  group.add(part3);
+
+  return group;
+}
+
+function build_chair(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'chair';
+
+  const part0 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.4, 0.04, 0.4),
+    matByName(params.color || 'wood_furn')
+  );
+  part0.position.set(0, 0.44, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.06, 0.44, 0.06),
+    matByName(params.color || 'wood_dark')
+  );
+  part1.position.set(-0.16, 0.22, -0.16);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  const part2 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.06, 0.44, 0.06),
+    matByName(params.color || 'wood_dark')
+  );
+  part2.position.set(0.16, 0.22, -0.16);
+  part2.castShadow = true;
+  part2.receiveShadow = true;
+  group.add(part2);
+
+  const part3 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.06, 0.44, 0.06),
+    matByName(params.color || 'wood_dark')
+  );
+  part3.position.set(-0.16, 0.22, 0.16);
+  part3.castShadow = true;
+  part3.receiveShadow = true;
+  group.add(part3);
+
+  const part4 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.06, 0.44, 0.06),
+    matByName(params.color || 'wood_dark')
+  );
+  part4.position.set(0.16, 0.22, 0.16);
+  part4.castShadow = true;
+  part4.receiveShadow = true;
+  group.add(part4);
+
+  const part5 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.4, 0.4, 0.06),
+    matByName(params.color || 'wood_furn')
+  );
+  part5.position.set(0, 0.66, 0.17);
+  part5.castShadow = true;
+  part5.receiveShadow = true;
+  group.add(part5);
+
+  return group;
+}
+
+function build_chest(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'chest';
+
+  const part0 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.8, 0.5, 0.5),
+    matByName(params.color || 'wood_dark')
+  );
+  part0.position.set(0, 0.25, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.82, 0.06, 0.52),
+    matByName(params.color || 'wood_furn')
+  );
+  part1.position.set(0, 0.53, 0);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  const part2 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.15, 0.06, 0.08),
+    matByName(params.color || 'metal')
+  );
+  part2.position.set(0, 0.35, -0.24);
+  part2.castShadow = true;
+  part2.receiveShadow = true;
+  group.add(part2);
+
+  return group;
+}
+
+function build_cooking_table(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'cooking_table';
+
+  const part0 = new THREE.Mesh(
+    new THREE.BoxGeometry(2, 0.08, 0.8),
+    matByName(params.color || 'wood_furn')
+  );
+  part0.position.set(0, 0.85, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.08, 0.85, 0.08),
+    matByName(params.color || 'wood_dark')
+  );
+  part1.position.set(-0.85, 0.42, -0.3);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  const part2 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.08, 0.85, 0.08),
+    matByName(params.color || 'wood_dark')
+  );
+  part2.position.set(0.85, 0.42, -0.3);
+  part2.castShadow = true;
+  part2.receiveShadow = true;
+  group.add(part2);
+
+  const part3 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.08, 0.85, 0.08),
+    matByName(params.color || 'wood_dark')
+  );
+  part3.position.set(-0.85, 0.42, 0.3);
+  part3.castShadow = true;
+  part3.receiveShadow = true;
+  group.add(part3);
+
+  const part4 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.08, 0.85, 0.08),
+    matByName(params.color || 'wood_dark')
+  );
+  part4.position.set(0.85, 0.42, 0.3);
+  part4.castShadow = true;
+  part4.receiveShadow = true;
+  group.add(part4);
+
+  return group;
+}
+
+function build_mug(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'mug';
+
+  const part0 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.04, 0.04, 0.1, 16),
+    matByName('wood_furn')
+  );
+  part0.position.set(0, 0.05, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.035, 0.035, 0.08, 16),
+    matByName('#553311')
+  );
+  part1.position.set(0, 0.04, 0);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  return group;
+}
+
+function build_nightstand(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'nightstand';
+
+  const part0 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.45, 0.5, 0.4),
+    matByName(params.color || 'wood_dark')
+  );
+  part0.position.set(0, 0.25, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.48, 0.03, 0.43),
+    matByName(params.color || 'wood_furn')
+  );
+  part1.position.set(0, 0.52, 0);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  return group;
+}
+
+function build_plate(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'plate';
+
+  const part0 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.1, 0.1, 0.015, 16),
+    matByName('plaster')
+  );
+  part0.position.set(0, 0.008, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  return group;
+}
+
+function build_pot(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'pot';
+
+  const part0 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.15, 0.15, 0.15, 16),
+    matByName('metal')
+  );
+  part0.position.set(0, 0.075, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.17, 0.17, 0.02, 16),
+    matByName('metal')
+  );
+  part1.position.set(0, 0.01, 0);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  const part2 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.17, 0.17, 0.02, 16),
+    matByName('metal')
+  );
+  part2.position.set(0, 0.14, 0);
+  part2.castShadow = true;
+  part2.receiveShadow = true;
+  group.add(part2);
+
+  return group;
+}
+
+function build_rug(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'rug';
+
+  const part0 = new THREE.Mesh(
+    new THREE.BoxGeometry(1.5, 0.02, 1.0),
+    matByName(params.color || 'accent')
+  );
+  part0.position.set(0, 0.01, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  return group;
+}
+
+function build_sack(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'sack';
+
+  const part0 = new THREE.Mesh(
+    new THREE.SphereGeometry(0.25, 16, 12),
+    matByName('cloth')
+  );
+  part0.position.set(0, 0.2, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.15, 0.15, 0.08, 16),
+    matByName('#886644')
+  );
+  part1.position.set(0, 0.42, 0);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  return group;
+}
+
+function build_shelf(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'shelf';
+
+  const part0 = new THREE.Mesh(
+    new THREE.BoxGeometry(1.5, 0.06, 0.35),
+    matByName(params.color || 'wood_dark')
+  );
+  part0.position.set(0, 1.2, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.BoxGeometry(1.5, 0.06, 0.35),
+    matByName(params.color || 'wood_dark')
+  );
+  part1.position.set(0, 1.8, 0);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  const part2 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.06, 1.2, 0.35),
+    matByName(params.color || 'wood')
+  );
+  part2.position.set(-0.7, 0.9, 0);
+  part2.castShadow = true;
+  part2.receiveShadow = true;
+  group.add(part2);
+
+  const part3 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.06, 1.2, 0.35),
+    matByName(params.color || 'wood')
+  );
+  part3.position.set(0.7, 0.9, 0);
+  part3.castShadow = true;
+  part3.receiveShadow = true;
+  group.add(part3);
+
+  return group;
+}
+
+function build_table_round(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'table_round';
+
+  const part0 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.5, 0.5, 0.06, 16),
+    matByName('wood_furn')
+  );
+  part0.position.set(0, 0.72, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.08, 0.08, 0.7, 16),
+    matByName('wood_dark')
+  );
+  part1.position.set(0, 0.35, 0);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  return group;
+}
+
+function build_wall_torch(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'wall_torch';
+
+  const part0 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.1, 0.15, 0.15),
+    matByName(params.color || 'metal')
+  );
+  part0.position.set(0, 0, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.03, 0.03, 0.25, 16),
+    matByName('wood_dark')
+  );
+  part1.position.set(0, 0.15, 0);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  const part2 = new THREE.Mesh(
+    new THREE.SphereGeometry(0.04, 16, 12),
+    matByName('#ff6622')
+  );
+  part2.position.set(0, 0.3, 0);
+  part2.castShadow = true;
+  part2.receiveShadow = true;
+  group.add(part2);
+
+  return group;
+}
+
+// ─── Scene placement ─────
+// ── Furniture ──
+  const bar_counter_01 = build_bar_counter({
+    name: 'bar_counter_01',
+  });
+  bar_counter_01.position.set(-0.5, 0.0, -6.0);
+  scene.add(bar_counter_01);
+
+  const barrel_01 = build_barrel({
+    name: 'barrel_01',
+  });
+  barrel_01.position.set(1.0, 0.0, -7.3);
+  scene.add(barrel_01);
+
+  const barrel_02 = build_barrel({
+    name: 'barrel_02',
+  });
+  barrel_02.position.set(1.6999999999999993, 0.0, -7.3);
+  scene.add(barrel_02);
+
+  const kitchen_barrel = build_barrel({
+    name: 'kitchen_barrel',
+  });
+  kitchen_barrel.position.set(3.5, 0.0, -1.0);
+  scene.add(kitchen_barrel);
+
+  const bed_01 = build_bed({
+    name: 'bed_01',
+  });
+  bed_01.position.set(-7.0, 0.0, 6.0);
+  scene.add(bed_01);
+
+  const bed_02 = build_bed({
+    name: 'bed_02',
+  });
+  bed_02.position.set(-1.5, 0.0, 6.0);
+  scene.add(bed_02);
+
+  const bed_03 = build_bed({
+    name: 'bed_03',
+  });
+  bed_03.position.set(4.5, 0.0, 6.0);
+  scene.add(bed_03);
+
+  const bottle_bar1 = build_bottle({
+    name: 'bottle_bar1',
+  });
+  bottle_bar1.position.set(0.0, 1.12, -6.2);
+  scene.add(bottle_bar1);
+
+  const bottle_bar2 = build_bottle({
+    name: 'bottle_bar2',
+  });
+  bottle_bar2.position.set(0.3000000000000007, 1.12, -5.9);
+  scene.add(bottle_bar2);
+
+  const bottle_bar3 = build_bottle({
+    name: 'bottle_bar3',
+  });
+  bottle_bar3.position.set(0.5, 1.12, -6.3);
+  scene.add(bottle_bar3);
+
+  const candle_t1 = build_candle({
+    name: 'candle_t1',
+  });
+  candle_t1.position.set(-5.5, 0.75, -6.0);
+  scene.add(candle_t1);
+
+  const candle_t2 = build_candle({
+    name: 'candle_t2',
+  });
+  candle_t2.position.set(-5.5, 0.75, -3.0);
+  scene.add(candle_t2);
+
+  const candle_t3 = build_candle({
+    name: 'candle_t3',
+  });
+  candle_t3.position.set(-2.7, 0.75, -2.4000000000000004);
+  scene.add(candle_t3);
+
+  const ch_01 = build_candle_holder({
+    name: 'ch_01',
+  });
+  ch_01.position.set(-6.0, 0.55, 6.800000000000001);
+  scene.add(ch_01);
+
+  const ch_02 = build_candle_holder({
+    name: 'ch_02',
+  });
+  ch_02.position.set(0.0, 0.55, 6.800000000000001);
+  scene.add(ch_02);
+
+  const ch_03 = build_candle_holder({
+    name: 'ch_03',
+  });
+  ch_03.position.set(6.0, 0.55, 6.800000000000001);
+  scene.add(ch_03);
+
+  const chair_01 = build_chair({
+    name: 'chair_01',
+  });
+  chair_01.position.set(-6.3, 0.0, -6.0);
+  chair_01.rotation.y = 4.712384999999999;
+  scene.add(chair_01);
+
+  const chair_02 = build_chair({
+    name: 'chair_02',
+  });
+  chair_02.position.set(-4.7, 0.0, -6.0);
+  chair_02.rotation.y = 1.570795;
+  scene.add(chair_02);
+
+  const chair_03 = build_chair({
+    name: 'chair_03',
+  });
+  chair_03.position.set(-5.5, 0.0, -5.2);
+  chair_03.rotation.y = 3.14159;
+  scene.add(chair_03);
+
+  const chair_04 = build_chair({
+    name: 'chair_04',
+  });
+  chair_04.position.set(-6.3, 0.0, -3.0);
+  chair_04.rotation.y = 4.712384999999999;
+  scene.add(chair_04);
+
+  const chair_05 = build_chair({
+    name: 'chair_05',
+  });
+  chair_05.position.set(-4.7, 0.0, -3.0);
+  chair_05.rotation.y = 1.570795;
+  scene.add(chair_05);
+
+  const chair_06 = build_chair({
+    name: 'chair_06',
+  });
+  chair_06.position.set(-3.2, 0.0, -2.5);
+  chair_06.rotation.y = 4.712384999999999;
+  scene.add(chair_06);
+
+  const chair_07 = build_chair({
+    name: 'chair_07',
+  });
+  chair_07.position.set(-1.7999999999999998, 0.0, -2.5);
+  chair_07.rotation.y = 1.570795;
+  scene.add(chair_07);
+
+  const br1_chair = build_chair({
+    name: 'br1_chair',
+  });
+  br1_chair.position.set(-5.0, 0.0, 3.5);
+  scene.add(br1_chair);
+
+  const br2_chair = build_chair({
+    name: 'br2_chair',
+  });
+  br2_chair.position.set(1.0, 0.0, 3.5);
+  scene.add(br2_chair);
+
+  const br3_chair = build_chair({
+    name: 'br3_chair',
+  });
+  br3_chair.position.set(7.0, 0.0, 3.5);
+  scene.add(br3_chair);
+
+  const chest_01 = build_chest({
+    name: 'chest_01',
+  });
+  chest_01.position.set(-4.5, 0.0, 6.5);
+  scene.add(chest_01);
+
+  const chest_02 = build_chest({
+    name: 'chest_02',
+  });
+  chest_02.position.set(1.5, 0.0, 6.5);
+  scene.add(chest_02);
+
+  const chest_03 = build_chest({
+    name: 'chest_03',
+  });
+  chest_03.position.set(7.5, 0.0, 6.5);
+  scene.add(chest_03);
+
+  const kitchen_table_01 = build_cooking_table({
+    name: 'kitchen_table_01',
+  });
+  kitchen_table_01.position.set(5.5, 0.0, -6.0);
+  scene.add(kitchen_table_01);
+
+  const kitchen_table_02 = build_cooking_table({
+    name: 'kitchen_table_02',
+  });
+  kitchen_table_02.position.set(5.5, 0.0, -2.5);
+  scene.add(kitchen_table_02);
+
+  const mug_t1a = build_mug({
+    name: 'mug_t1a',
+  });
+  mug_t1a.position.set(-5.8, 0.75, -5.9);
+  scene.add(mug_t1a);
+
+  const mug_t2a = build_mug({
+    name: 'mug_t2a',
+  });
+  mug_t2a.position.set(-5.7, 0.75, -2.8);
+  scene.add(mug_t2a);
+
+  const mug_t2b = build_mug({
+    name: 'mug_t2b',
+  });
+  mug_t2b.position.set(-5.2, 0.75, -3.2);
+  scene.add(mug_t2b);
+
+  const mug_t3a = build_mug({
+    name: 'mug_t3a',
+  });
+  mug_t3a.position.set(-2.3, 0.75, -2.7);
+  scene.add(mug_t3a);
+
+  const mug_bar1 = build_mug({
+    name: 'mug_bar1',
+  });
+  mug_bar1.position.set(-1.5, 1.12, -6.0);
+  scene.add(mug_bar1);
+
+  const mug_bar2 = build_mug({
+    name: 'mug_bar2',
+  });
+  mug_bar2.position.set(-1.0, 1.12, -5.8);
+  scene.add(mug_bar2);
+
+  const ns_01 = build_nightstand({
+    name: 'ns_01',
+  });
+  ns_01.position.set(-6.0, 0.0, 6.800000000000001);
+  scene.add(ns_01);
+
+  const ns_02 = build_nightstand({
+    name: 'ns_02',
+  });
+  ns_02.position.set(0.0, 0.0, 6.800000000000001);
+  scene.add(ns_02);
+
+  const ns_03 = build_nightstand({
+    name: 'ns_03',
+  });
+  ns_03.position.set(6.0, 0.0, 6.800000000000001);
+  scene.add(ns_03);
+
+  const plate_t1a = build_plate({
+    name: 'plate_t1a',
+  });
+  plate_t1a.position.set(-5.2, 0.75, -6.2);
+  scene.add(plate_t1a);
+
+  const plate_t2a = build_plate({
+    name: 'plate_t2a',
+  });
+  plate_t2a.position.set(-5.6, 0.75, -3.3);
+  scene.add(plate_t2a);
+
+  const plate_k1 = build_plate({
+    name: 'plate_k1',
+  });
+  plate_k1.position.set(5.800000000000001, 0.89, -6.0);
+  scene.add(plate_k1);
+
+  const plate_k2 = build_plate({
+    name: 'plate_k2',
+  });
+  plate_k2.position.set(5.1, 0.89, -2.3);
+  scene.add(plate_k2);
+
+  const pot_01 = build_pot({
+    name: 'pot_01',
+  });
+  pot_01.position.set(5.0, 0.89, -5.8);
+  scene.add(pot_01);
+
+  const pot_02 = build_pot({
+    name: 'pot_02',
+  });
+  pot_02.position.set(6.0, 0.89, -2.7);
+  scene.add(pot_02);
+
+  const rug_fire = build_rug({
+    name: 'rug_fire',
+  });
+  rug_fire.position.set(-7.0, 0.0, -4.0);
+  scene.add(rug_fire);
+
+  const rug_br1 = build_rug({
+    name: 'rug_br1',
+  });
+  rug_br1.position.set(-7.0, 0.0, 4.5);
+  scene.add(rug_br1);
+
+  const rug_br2 = build_rug({
+    name: 'rug_br2',
+  });
+  rug_br2.position.set(-1.5, 0.0, 4.5);
+  scene.add(rug_br2);
+
+  const rug_br3 = build_rug({
+    name: 'rug_br3',
+  });
+  rug_br3.position.set(4.5, 0.0, 4.5);
+  scene.add(rug_br3);
+
+  const rug_hall = build_rug({
+    name: 'rug_hall',
+  });
+  rug_hall.position.set(0.0, 0.0, 1.25);
+  scene.add(rug_hall);
+
+  const sack_01 = build_sack({
+    name: 'sack_01',
+  });
+  sack_01.position.set(7.5, 0.0, -7.0);
+  scene.add(sack_01);
+
+  const sack_02 = build_sack({
+    name: 'sack_02',
+  });
+  sack_02.position.set(8.0, 0.0, -6.2);
+  scene.add(sack_02);
+
+  const kitchen_shelf_01 = build_shelf({
+    name: 'kitchen_shelf_01',
+  });
+  kitchen_shelf_01.position.set(7.0, 0.0, -0.5);
+  scene.add(kitchen_shelf_01);
+
+  const table_01 = build_table_round({
+    name: 'table_01',
+  });
+  table_01.position.set(-5.5, 0.0, -6.0);
+  scene.add(table_01);
+
+  const table_02 = build_table_round({
+    name: 'table_02',
+  });
+  table_02.position.set(-5.5, 0.0, -3.0);
+  scene.add(table_02);
+
+  const table_03 = build_table_round({
+    name: 'table_03',
+  });
+  table_03.position.set(-2.5, 0.0, -2.5);
+  scene.add(table_03);
+
+  const torch_bar_S = build_wall_torch({
+    name: 'torch_bar_S',
+  });
+  torch_bar_S.position.set(-3.0, 2.0, -7.7);
+  scene.add(torch_bar_S);
+
+  const torch_bar_N = build_wall_torch({
+    name: 'torch_bar_N',
+  });
+  torch_bar_N.position.set(-3.0, 2.0, -0.2999999999999998);
+  scene.add(torch_bar_N);
+
+  const torch_bar_W = build_wall_torch({
+    name: 'torch_bar_W',
+  });
+  torch_bar_W.position.set(-8.2, 2.0, -1.0);
+  scene.add(torch_bar_W);
+
+  const torch_kitchen = build_wall_torch({
+    name: 'torch_kitchen',
+  });
+  torch_kitchen.position.set(8.2, 2.0, -4.0);
+  scene.add(torch_kitchen);
+
+  const torch_hall_W = build_wall_torch({
+    name: 'torch_hall_W',
+  });
+  torch_hall_W.position.set(-8.2, 2.0, 1.25);
+  scene.add(torch_hall_W);
+
+  const torch_hall_E = build_wall_torch({
+    name: 'torch_hall_E',
+  });
+  torch_hall_E.position.set(8.2, 2.0, 1.25);
+  scene.add(torch_hall_E);
+
+
+// ── Atmospheric lights for candles and torches ──
+
+// Bar table candles (warm, small radius)
+(() => {
+    const candlePositions = [
+        [-5.5, 0.95, -6.0],  // candle_t1
+        [-5.5, 0.95, -3.0],  // candle_t2
+        [-2.7, 0.95, -2.4],  // candle_t3
+    ];
+    candlePositions.forEach(([x,y,z]) => {
+        const light = new THREE.PointLight(0xff9933, 0.6, 4);
+        light.position.set(x, y, z);
+        scene.add(light);
+    });
+})();
+
+// Wall torches (warmer, larger radius)
+(() => {
+    const torchPositions = [
+        [-3.0, 2.3, -7.7],   // torch_bar_S
+        [-3.0, 2.3, -0.3],   // torch_bar_N
+        [-8.2, 2.3, -1.0],   // torch_bar_W
+        [8.2, 2.3, -4.0],    // torch_kitchen
+        [-8.2, 2.3, 1.25],   // torch_hall_W
+        [8.2, 2.3, 1.25],    // torch_hall_E
+    ];
+    torchPositions.forEach(([x,y,z]) => {
+        const light = new THREE.PointLight(0xff6633, 0.8, 6);
+        light.position.set(x, y, z);
+        scene.add(light);
+    });
+})();
+
+// Bedroom candle holders (very dim, intimate)
+(() => {
+    const bedroomCandles = [
+        [-6.0, 0.85, 6.8],   // ch_01
+        [0.0, 0.85, 6.8],    // ch_02
+        [6.0, 0.85, 6.8],    // ch_03
+    ];
+    bedroomCandles.forEach(([x,y,z]) => {
+        const light = new THREE.PointLight(0xffaa44, 0.4, 3);
+        light.position.set(x, y, z);
+        scene.add(light);
+    });
+})();
+
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  SCENE SETUP (usually no need to edit below)
+    // ══════════════════════════════════════════════════════════
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#0a0a12');
+    scene.fog = new THREE.Fog('#0a0a12', 80, 200);
+
+    const camera = new THREE.PerspectiveCamera(
+        50, window.innerWidth / window.innerHeight, 0.1, 500
+    );
+    camera.position.set(10, 12.0, -12.0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    document.body.appendChild(renderer.domElement);
+
+    // Lighting
+    const ambient = new THREE.AmbientLight(0xffeedd, 0.15);
+    scene.add(ambient);
+
+    const dirLight = new THREE.DirectionalLight(0xffeedd, 0.2);
+    dirLight.position.set(15, 25, 20);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.set(1024, 1024);
+    dirLight.shadow.camera.near = 0.5;
+    dirLight.shadow.camera.far = 80;
+    dirLight.shadow.camera.left = -20;
+    dirLight.shadow.camera.right = 20;
+    dirLight.shadow.camera.top = 20;
+    dirLight.shadow.camera.bottom = -20;
+    scene.add(dirLight);
+
+    const fillLight = new THREE.DirectionalLight(0x8899bb, 0.3);
+    fillLight.position.set(-10, 8, -10);
+    scene.add(fillLight);
+
+        const gridHelper = new THREE.GridHelper(30, 40, 0x444444, 0x222222);
+        scene.add(gridHelper);
+
+
+    // Build
+    const model = buildModel(scene);
+
+    // Controls (real OrbitControls with touch, keyboard, damping)
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.target.set(0, 1.5, 0);
+    controls.dampingFactor = 0.08;
+    controls.target.set(0, 3.6, 0);
+
+    // Render loop
+    function animate() {
+        requestAnimationFrame(animate);
+        if (window._walkMode) { window._walkUpdate(); } else { controls.update(); }
+        renderer.render(scene, camera);
+    }
+    animate();
+
+    // ── Walk Mode ──────────────────────────────────────
+    (function() {
+        let walkMode = false;
+        let wk = { x: 0, y: 1.6, z: 0, rotY: 0, rotX: 0 };
+        const keys = {};
+        const SPEED = 0.1;
+
+        // UI
+        const btn = document.createElement('div');
+        btn.innerHTML = '🚶 Walk [F]';
+        btn.style.cssText = 'position:fixed;bottom:14px;right:14px;color:#fff;background:rgba(0,0,0,0.7);padding:8px 14px;border-radius:6px;cursor:pointer;font:13px/1 monospace;z-index:100;border:1px solid #555;user-select:none;';
+        document.body.appendChild(btn);
+
+        const hud = document.createElement('div');
+        hud.style.cssText = 'position:fixed;bottom:14px;left:50%;transform:translateX(-50%);color:#aaa;background:rgba(0,0,0,0.6);padding:6px 14px;border-radius:6px;font:11px/1.3 monospace;z-index:100;display:none;white-space:nowrap;';
+        document.body.appendChild(hud);
+
+        function toggle() {
+            walkMode = !walkMode;
+            window._walkMode = walkMode;
+            btn.innerHTML = walkMode ? '🔭 Orbit [F]' : '🚶 Walk [F]';
+            btn.style.borderColor = walkMode ? '#4a4' : '#555';
+            hud.style.display = walkMode ? 'block' : 'none';
+            if (walkMode) {
+                wk = { x: camera.position.x, y: 1.6, z: camera.position.z, rotY: 0, rotX: 0 };
+                controls.enabled = false;
+                renderer.domElement.requestPointerLock();
+            } else {
+                controls.enabled = true;
+                document.exitPointerLock();
+                camera.position.set(10, 12.0, -12.0);
+                controls.target.set(0, 3.6, 0);
+            }
+        }
+
+        btn.onclick = toggle;
+        document.addEventListener('keydown', e => {
+            keys[e.key.toLowerCase()] = true;
+            if (e.key.toLowerCase() === 'f' && e.target === document.body) toggle();
+            if (e.key === 'Escape' && walkMode) toggle();
+        });
+        document.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+        // Mouse look
+        document.addEventListener('mousemove', e => {
+            if (!walkMode || !document.pointerLockElement) return;
+            wk.rotY -= e.movementX * 0.002;
+            wk.rotX = Math.max(-1.4, Math.min(1.4, wk.rotX - e.movementY * 0.002));
+        });
+
+        // Re-lock on click
+        renderer.domElement.addEventListener('click', () => {
+            if (walkMode && !document.pointerLockElement) renderer.domElement.requestPointerLock();
+        });
+
+        // Q/E rotation (keyboard look without mouse)
+        // Arrow keys + WASD movement
+
+        window._walkUpdate = function() {
+            const fwd = { x: Math.sin(wk.rotY), z: Math.cos(wk.rotY) };
+            const rgt = { x: Math.cos(wk.rotY), z: -Math.sin(wk.rotY) };
+
+            if (keys['w'] || keys['arrowup'])    { wk.x += fwd.x*SPEED; wk.z += fwd.z*SPEED; }
+            if (keys['s'] || keys['arrowdown'])  { wk.x -= fwd.x*SPEED; wk.z -= fwd.z*SPEED; }
+            if (keys['a'] || keys['arrowleft'])  { wk.x -= rgt.x*SPEED; wk.z -= rgt.z*SPEED; }
+            if (keys['d'] || keys['arrowright']) { wk.x += rgt.x*SPEED; wk.z += rgt.z*SPEED; }
+            if (keys['q']) wk.rotY += 0.03;
+            if (keys['e']) wk.rotY -= 0.03;
+            if (keys['r']) wk.rotX = Math.min(1.4, wk.rotX + 0.02);
+            if (keys['t']) wk.rotX = Math.max(-1.4, wk.rotX - 0.02);
+
+            camera.position.set(wk.x, wk.y, wk.z);
+            camera.lookAt(
+                wk.x + Math.sin(wk.rotY) * 10,
+                wk.y + Math.sin(wk.rotX) * 10,
+                wk.z + Math.cos(wk.rotY) * 10
+            );
+
+            const deg = ((wk.rotY * 180 / Math.PI) % 360 + 360) % 360;
+            const dir = ['N','NE','E','SE','S','SW','W','NW'][Math.round(deg/45)%8];
+            hud.innerHTML = 'pos: ('+wk.x.toFixed(1)+', '+wk.z.toFixed(1)+') '+
+                ' facing: '+dir+
+                ' &nbsp;│&nbsp; WASD: move &nbsp; Mouse/QE: look &nbsp; F: orbit &nbsp; Esc: exit';
+        };
+
+        window._walkMode = false;
+    })();
+
+    // Resize
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+</script>
+</body>
+</html>

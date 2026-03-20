@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Hilltop Shrine Compound</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { overflow: hidden; background: #0f1018; }
+  canvas { display: block; }
+  #info {
+    position: fixed; top: 12px; left: 12px;
+    color: #aaa; font: 13px/1.4 monospace;
+    background: rgba(0,0,0,0.5); padding: 8px 12px;
+    border-radius: 6px; pointer-events: none;
+    max-width: 320px;
+  }
+</style>
+</head>
+<body>
+
+<div id="info">
+  <strong>Hilltop Shrine Compound</strong><br>
+  Orbit: drag &middot; Zoom: scroll &middot; Pan: right-drag
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // Make THREE available globally for buildModel compatibility
+    window.THREE = THREE;
+
+    // ══════════════════════════════════════════════════════════
+    //  PARAMETERS
+    // ══════════════════════════════════════════════════════════
+    // ── Central parameters ──────────────────────────────────
+    // Edit these, everything else derives from them.
+    const PARAMS = {
+        // overall
+        unit: 'm',
+        groundY: 0,
+
+        // example part
+        baseWidth: 4,
+        baseDepth: 3,
+        baseHeight: 0.5,
+    };
+
+    // ══════════════════════════════════════════════════════════
+    //  MATERIAL PALETTE
+    // ══════════════════════════════════════════════════════════
+    const _matCache = {};
+    function matByName(name) {
+        if (_matCache[name]) return _matCache[name];
+        const palette = {
+            stone:      { color: 0xc4b8a8, roughness: 0.85, metalness: 0.0 },
+            brick:      { color: 0xa0522d, roughness: 0.75, metalness: 0.0 },
+            metal:      { color: 0x555555, roughness: 0.45, metalness: 0.8 },
+            metal_pol:  { color: 0xcccccc, roughness: 0.15, metalness: 0.95 },
+            wood:       { color: 0x5c3a1e, roughness: 0.80, metalness: 0.0 },
+            wood_furn:  { color: 0x8b6914, roughness: 0.70, metalness: 0.0 },
+            wood_dark:  { color: 0x5c3a1e, roughness: 0.80, metalness: 0.0 },
+            plaster:    { color: 0xd4c5a9, roughness: 0.90, metalness: 0.0 },
+            floor:      { color: 0x6b4423, roughness: 0.85, metalness: 0.0 },
+            grass:      { color: 0x556b2f, roughness: 0.90, metalness: 0.0 },
+            marble:     { color: 0xf0ece0, roughness: 0.40, metalness: 0.0 },
+            accent:     { color: 0xcc4444, roughness: 0.50, metalness: 0.0 },
+            roof:       { color: 0x8b3a3a, roughness: 0.75, metalness: 0.0 },
+            cloth:      { color: 0x4444aa, roughness: 0.85, metalness: 0.0 },
+            cloth_dark: { color: 0x333355, roughness: 0.85, metalness: 0.0 },
+            skin:       { color: 0xddaa88, roughness: 0.70, metalness: 0.0 },
+            leaf:       { color: 0x33aa44, roughness: 0.75, metalness: 0.0 },
+        };
+        const props = palette[name];
+        let mat;
+        if (name === 'glass') {
+            mat = new THREE.MeshPhysicalMaterial({ color: 0x88bbdd, transmission: 0.9, roughness: 0.05 });
+        } else if (props) {
+            mat = new THREE.MeshStandardMaterial(props);
+        } else {
+            // Try parsing as hex color string
+            if (typeof name === 'string' && name.startsWith('#')) {
+                mat = new THREE.MeshStandardMaterial({ color: parseInt(name.slice(1), 16), roughness: 0.75 });
+            } else {
+                mat = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.80, metalness: 0.1 });
+            }
+        }
+        _matCache[name] = mat;
+        return mat;
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  BUILD MODEL
+    // ══════════════════════════════════════════════════════════
+    
+    function buildGround(scene) {
+        const ground = new THREE.Mesh(
+            new THREE.PlaneGeometry(42, 46),
+            matByName('grass')
+        );
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.set(0, -0.02, 0);
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        const path = new THREE.Mesh(
+            new THREE.PlaneGeometry(3, 12),
+            matByName('stone')
+        );
+        path.rotation.x = -Math.PI / 2;
+        path.position.set(0, -0.01, -13);
+        path.receiveShadow = true;
+        scene.add(path);
+
+        const court = new THREE.Mesh(
+            new THREE.PlaneGeometry(16, 6),
+            matByName('stone')
+        );
+        court.rotation.x = -Math.PI / 2;
+        court.position.set(0, -0.01, -5);
+        court.receiveShadow = true;
+        scene.add(court);
+    }
+
+// ─── Auto-generated from template library ─────
+// Requires matByName() — provided by scaffold.py's material palette.
+// Centered: offset (18.0, 20.0) subtracted from all positions.
+
+function build_bell_frame(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'bell_frame';
+
+  const part0 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.2, 2.5, 0.2),
+    matByName(params.color || 'wood_dark')
+  );
+  part0.position.set(-1.0, 1.25, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.2, 2.5, 0.2),
+    matByName(params.color || 'wood_dark')
+  );
+  part1.position.set(1.0, 1.25, 0);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  const part2 = new THREE.Mesh(
+    new THREE.BoxGeometry(2.4, 0.15, 0.25),
+    matByName(params.color || 'wood_dark')
+  );
+  part2.position.set(0, 2.5, 0);
+  part2.castShadow = true;
+  part2.receiveShadow = true;
+  group.add(part2);
+
+  const part3 = new THREE.Mesh(
+    new THREE.SphereGeometry(0.3, 16, 12),
+    matByName('metal')
+  );
+  part3.position.set(0, 2.0, 0);
+  part3.castShadow = true;
+  part3.receiveShadow = true;
+  group.add(part3);
+
+  const part4 = new THREE.Mesh(
+    new THREE.ConeGeometry(0.5, 0.4, 4),
+    matByName('roof')
+  );
+  part4.position.set(0, 2.8, 0);
+  part4.rotation.y = Math.PI / 4;
+  part4.castShadow = true;
+  part4.receiveShadow = true;
+  group.add(part4);
+
+  return group;
+}
+
+function build_garden_stone(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'garden_stone';
+
+  const part0 = new THREE.Mesh(
+    new THREE.SphereGeometry(0.4, 16, 12),
+    matByName('stone')
+  );
+  part0.position.set(0, 0.25, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  return group;
+}
+
+function build_jar(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'jar';
+
+  const part0 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.3, 0.3, 0.7, 16),
+    matByName('stone')
+  );
+  part0.position.set(0, 0.35, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  return group;
+}
+
+function build_lantern(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'lantern';
+
+  const part0 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.4, 0.3, 0.4),
+    matByName(params.color || 'stone')
+  );
+  part0.position.set(0, 0.15, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.1, 0.1, 1.0, 16),
+    matByName('stone')
+  );
+  part1.position.set(0, 0.8, 0);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  const part2 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.5, 0.4, 0.5),
+    matByName(params.color || 'plaster')
+  );
+  part2.position.set(0, 1.5, 0);
+  part2.castShadow = true;
+  part2.receiveShadow = true;
+  group.add(part2);
+
+  const part3 = new THREE.Mesh(
+    new THREE.ConeGeometry(0.45, 0.3, 4),
+    matByName('stone')
+  );
+  part3.position.set(0, 1.85, 0);
+  part3.rotation.y = Math.PI / 4;
+  part3.castShadow = true;
+  part3.receiveShadow = true;
+  group.add(part3);
+
+  return group;
+}
+
+function build_notice_board(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'notice_board';
+
+  const part0 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.1, 1.8, 0.1),
+    matByName(params.color || 'wood_dark')
+  );
+  part0.position.set(-0.6, 0.9, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.1, 1.8, 0.1),
+    matByName(params.color || 'wood_dark')
+  );
+  part1.position.set(0.6, 0.9, 0);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  const part2 = new THREE.Mesh(
+    new THREE.BoxGeometry(1.4, 1.0, 0.08),
+    matByName(params.color || 'wood_furn')
+  );
+  part2.position.set(0, 1.3, 0);
+  part2.castShadow = true;
+  part2.receiveShadow = true;
+  group.add(part2);
+
+  const part3 = new THREE.Mesh(
+    new THREE.BoxGeometry(1.5, 0.08, 0.15),
+    matByName(params.color || 'wood_dark')
+  );
+  part3.position.set(0, 1.85, 0);
+  part3.castShadow = true;
+  part3.receiveShadow = true;
+  group.add(part3);
+
+  return group;
+}
+
+function build_platform(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'platform';
+
+  const part0 = new THREE.Mesh(
+    new THREE.BoxGeometry(14, 0.6, 10),
+    matByName(params.color || 'stone')
+  );
+  part0.position.set(0, 0.3, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  return group;
+}
+
+function build_shed(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'shed';
+
+  const part0 = new THREE.Mesh(
+    new THREE.BoxGeometry(3, 2.2, 2.5),
+    matByName(params.color || 'wood')
+  );
+  part0.position.set(0, 1.1, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.BoxGeometry(3.3, 0.15, 2.8),
+    matByName(params.color || 'roof')
+  );
+  part1.position.set(0, 2.3, 0);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  const part2 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.6, 1.2, 0.1),
+    matByName(params.color || 'wood_dark')
+  );
+  part2.position.set(0, 0.6, -1.26);
+  part2.castShadow = true;
+  part2.receiveShadow = true;
+  group.add(part2);
+
+  return group;
+}
+
+function build_shrine_hall(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'shrine_hall';
+
+  const part0 = new THREE.Mesh(
+    new THREE.BoxGeometry(8, 4, 6),
+    matByName(params.color || 'plaster')
+  );
+  part0.position.set(0, 2.0, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.BoxGeometry(8.4, 0.3, 6.4),
+    matByName(params.color || 'wood_dark')
+  );
+  part1.position.set(0, 0.15, 0);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  const part2 = new THREE.Mesh(
+    new THREE.ConeGeometry(5.5, 2.5, 4),
+    matByName('roof')
+  );
+  part2.position.set(0, 5.25, 0);
+  part2.rotation.y = Math.PI / 4;
+  part2.castShadow = true;
+  part2.receiveShadow = true;
+  group.add(part2);
+
+  const part3 = new THREE.Mesh(
+    new THREE.BoxGeometry(1.0, 2.5, 0.2),
+    matByName(params.color || 'wood_dark')
+  );
+  part3.position.set(0, 1.25, -3.01);
+  part3.castShadow = true;
+  part3.receiveShadow = true;
+  group.add(part3);
+
+  const part4 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.6, 0.8, 0.15),
+    matByName(params.color || 'glass')
+  );
+  part4.position.set(-2.2, 2.5, -3.01);
+  part4.castShadow = true;
+  part4.receiveShadow = true;
+  group.add(part4);
+
+  const part5 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.6, 0.8, 0.15),
+    matByName(params.color || 'glass')
+  );
+  part5.position.set(2.2, 2.5, -3.01);
+  part5.castShadow = true;
+  part5.receiveShadow = true;
+  group.add(part5);
+
+  const part6 = new THREE.Mesh(
+    new THREE.BoxGeometry(9.0, 0.12, 7.0),
+    matByName(params.color || 'roof')
+  );
+  part6.position.set(0, 4.06, 0);
+  part6.castShadow = true;
+  part6.receiveShadow = true;
+  group.add(part6);
+
+  const part7 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.15, 0.8, 0.15),
+    matByName(params.color || 'wood_dark')
+  );
+  part7.position.set(0, 4.4, -3.5);
+  part7.castShadow = true;
+  part7.receiveShadow = true;
+  group.add(part7);
+
+  return group;
+}
+
+function build_stair_block(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'stair_block';
+
+  const part0 = new THREE.Mesh(
+    new THREE.BoxGeometry(6, 0.2, 0.8),
+    matByName(params.color || 'stone')
+  );
+  part0.position.set(0, 0.1, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  return group;
+}
+
+function build_torii_gate(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'torii_gate';
+
+  const part0 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.15, 0.15, 3.5, 16),
+    matByName('accent')
+  );
+  part0.position.set(-2.0, 1.75, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.15, 0.15, 3.5, 16),
+    matByName('accent')
+  );
+  part1.position.set(2.0, 1.75, 0);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  const part2 = new THREE.Mesh(
+    new THREE.BoxGeometry(5.0, 0.2, 0.3),
+    matByName(params.color || 'accent')
+  );
+  part2.position.set(0, 3.3, 0);
+  part2.castShadow = true;
+  part2.receiveShadow = true;
+  group.add(part2);
+
+  const part3 = new THREE.Mesh(
+    new THREE.BoxGeometry(4.2, 0.15, 0.25),
+    matByName(params.color || 'accent')
+  );
+  part3.position.set(0, 2.8, 0);
+  part3.castShadow = true;
+  part3.receiveShadow = true;
+  group.add(part3);
+
+  return group;
+}
+
+function build_tree_simple(params) {
+  const group = new THREE.Group();
+  group.name = params.name || 'tree_simple';
+
+  const part0 = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.3, 0.3, 2, 16),
+    matByName('wood')
+  );
+  part0.position.set(0, 1.0, 0);
+  part0.castShadow = true;
+  part0.receiveShadow = true;
+  group.add(part0);
+
+  const part1 = new THREE.Mesh(
+    new THREE.SphereGeometry(1.5, 16, 12),
+    matByName('leaf')
+  );
+  part1.position.set(0, 3.0, 0);
+  part1.castShadow = true;
+  part1.receiveShadow = true;
+  group.add(part1);
+
+  return group;
+}
+
+// ─── Scene placement ─────
+function buildModel(scene) {
+        buildGround(scene);
+  const bell_01 = build_bell_frame({
+    name: 'bell_01',
+  });
+  bell_01.position.set(11.0, 0.0, -4.0);
+  scene.add(bell_01);
+
+  const stone_01 = build_garden_stone({
+    name: 'stone_01',
+  });
+  stone_01.position.set(-13.0, 0.0, -5.0);
+  scene.add(stone_01);
+
+  const stone_02 = build_garden_stone({
+    name: 'stone_02',
+  });
+  stone_02.position.set(-15.0, 0.0, -2.0);
+  scene.add(stone_02);
+
+  const stone_03 = build_garden_stone({
+    name: 'stone_03',
+  });
+  stone_03.position.set(-11.0, 0.0, 1.0);
+  scene.add(stone_03);
+
+  const stone_04 = build_garden_stone({
+    name: 'stone_04',
+  });
+  stone_04.position.set(-14.0, 0.0, 4.0);
+  scene.add(stone_04);
+
+  const supply_crate = build_garden_stone({
+    name: 'supply_crate',
+  });
+  supply_crate.position.set(4.0, 0.0, 12.0);
+  scene.add(supply_crate);
+
+  const jar_01 = build_jar({
+    name: 'jar_01',
+  });
+  jar_01.position.set(-3.0, 0.0, 12.0);
+  scene.add(jar_01);
+
+  const jar_02 = build_jar({
+    name: 'jar_02',
+  });
+  jar_02.position.set(-3.0, 0.0, 13.5);
+  scene.add(jar_02);
+
+  const jar_03 = build_jar({
+    name: 'jar_03',
+  });
+  jar_03.position.set(-4.0, 0.0, 13.0);
+  scene.add(jar_03);
+
+  // lantern: 10 instances → batch placement
+  {
+    const positions = [
+      { x: -3.0, y: 0.0, z: -17.0, color: '', rotY: 0 },
+      { x: 3.0, y: 0.0, z: -17.0, color: '', rotY: 0 },
+      { x: -3.0, y: 0.0, z: -12.5, color: '', rotY: 0 },
+      { x: 3.0, y: 0.0, z: -12.5, color: '', rotY: 0 },
+      { x: -12.0, y: 0.0, z: -8.0, color: '', rotY: 0 },
+      { x: -13.0, y: 0.0, z: 0.0, color: '', rotY: 0 },
+      { x: -13.0, y: 0.0, z: 6.0, color: '', rotY: 0 },
+      { x: 10.0, y: 0.0, z: -8.0, color: '', rotY: 0 },
+      { x: 10.0, y: 0.0, z: 4.0, color: '', rotY: 0 },
+      { x: 0.0, y: 0.0, z: 8.0, color: '', rotY: 0 },
+    ];
+    positions.forEach((p, i) => {
+      const inst = build_lantern({ name: 'lantern_' + i, color: p.color || undefined });
+      inst.position.set(p.x, p.y, p.z);
+      if (p.rotY) inst.rotation.y = p.rotY;
+      scene.add(inst);
+    });
+  }
+  const notice_01 = build_notice_board({
+    name: 'notice_01',
+  });
+  notice_01.position.set(12.0, 0.0, 0.0);
+  scene.add(notice_01);
+
+  const platform_01 = build_platform({
+    name: 'platform_01',
+  });
+  platform_01.position.set(0.0, 0.0, -2.0);
+  scene.add(platform_01);
+
+  const shed_01 = build_shed({
+    name: 'shed_01',
+  });
+  shed_01.position.set(0.0, 0.0, 13.0);
+  scene.add(shed_01);
+
+  const hall_01 = build_shrine_hall({
+    name: 'hall_01',
+  });
+  hall_01.position.set(0.0, 0.6, -1.0);
+  scene.add(hall_01);
+
+  const stair_01 = build_stair_block({
+    name: 'stair_01',
+  });
+  stair_01.position.set(0.0, 0.0, -16.0);
+  scene.add(stair_01);
+
+  const stair_02 = build_stair_block({
+    name: 'stair_02',
+  });
+  stair_02.position.set(0.0, 0.2, -15.0);
+  scene.add(stair_02);
+
+  const stair_03 = build_stair_block({
+    name: 'stair_03',
+  });
+  stair_03.position.set(0.0, 0.4, -14.0);
+  scene.add(stair_03);
+
+  const gate_01 = build_torii_gate({
+    name: 'gate_01',
+  });
+  gate_01.position.set(0.0, 0.0, -11.0);
+  scene.add(gate_01);
+
+  const tree_garden_01 = build_tree_simple({
+    name: 'tree_garden_01',
+  });
+  tree_garden_01.position.set(-15.0, 0.0, -10.0);
+  scene.add(tree_garden_01);
+
+  const tree_garden_02 = build_tree_simple({
+    name: 'tree_garden_02',
+  });
+  tree_garden_02.position.set(-10.0, 0.0, 7.0);
+  scene.add(tree_garden_02);
+
+  const tree_east_01 = build_tree_simple({
+    name: 'tree_east_01',
+  });
+  tree_east_01.position.set(15.0, 0.0, -6.0);
+  scene.add(tree_east_01);
+
+  const tree_east_02 = build_tree_simple({
+    name: 'tree_east_02',
+  });
+  tree_east_02.position.set(14.0, 0.0, 5.0);
+  scene.add(tree_east_02);
+
+  const tree_SW = build_tree_simple({
+    name: 'tree_SW',
+  });
+  tree_SW.position.set(-16.0, 0.0, -18.0);
+  scene.add(tree_SW);
+
+  const tree_SE = build_tree_simple({
+    name: 'tree_SE',
+  });
+  tree_SE.position.set(16.0, 0.0, -18.0);
+  scene.add(tree_SE);
+
+  const tree_NW = build_tree_simple({
+    name: 'tree_NW',
+  });
+  tree_NW.position.set(-16.0, 0.0, 16.0);
+  scene.add(tree_NW);
+
+  const tree_NE = build_tree_simple({
+    name: 'tree_NE',
+  });
+  tree_NE.position.set(16.0, 0.0, 16.0);
+  scene.add(tree_NE);
+
+}
+
+    // ══════════════════════════════════════════════════════════
+    //  SCENE SETUP (usually no need to edit below)
+    // ══════════════════════════════════════════════════════════
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#0f1018');
+    scene.fog = new THREE.Fog('#0f1018', 80, 200);
+
+    const camera = new THREE.PerspectiveCamera(
+        50, window.innerWidth / window.innerHeight, 0.1, 500
+    );
+    camera.position.set(10, 18.0, -15.0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    document.body.appendChild(renderer.domElement);
+
+    // Lighting
+    const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+    scene.add(ambient);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(15, 25, 20);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.set(1024, 1024);
+    dirLight.shadow.camera.near = 0.5;
+    dirLight.shadow.camera.far = 80;
+    dirLight.shadow.camera.left = -20;
+    dirLight.shadow.camera.right = 20;
+    dirLight.shadow.camera.top = 20;
+    dirLight.shadow.camera.bottom = -20;
+    scene.add(dirLight);
+
+    const fillLight = new THREE.DirectionalLight(0x8899bb, 0.3);
+    fillLight.position.set(-10, 8, -10);
+    scene.add(fillLight);
+
+        const gridHelper = new THREE.GridHelper(50, 40, 0x444444, 0x222222);
+        scene.add(gridHelper);
+
+        const axesHelper = new THREE.AxesHelper(8);
+        scene.add(axesHelper);
+
+    // Build
+    const model = buildModel(scene);
+
+    // Controls (real OrbitControls with touch, keyboard, damping)
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.target.set(0, 2, 0);
+    controls.dampingFactor = 0.08;
+    controls.target.set(0, 5.4, 0);
+
+    // Render loop
+    function animate() {
+        requestAnimationFrame(animate);
+        if (window._walkMode) { window._walkUpdate(); } else { controls.update(); }
+        renderer.render(scene, camera);
+    }
+    animate();
+
+    // ── Walk Mode ──────────────────────────────────────
+    (function() {
+        let walkMode = false;
+        let wk = { x: 0, y: 1.6, z: 0, rotY: 0, rotX: 0 };
+        const keys = {};
+        const SPEED = 0.1;
+
+        // UI
+        const btn = document.createElement('div');
+        btn.innerHTML = '🚶 Walk [F]';
+        btn.style.cssText = 'position:fixed;bottom:14px;right:14px;color:#fff;background:rgba(0,0,0,0.7);padding:8px 14px;border-radius:6px;cursor:pointer;font:13px/1 monospace;z-index:100;border:1px solid #555;user-select:none;';
+        document.body.appendChild(btn);
+
+        const hud = document.createElement('div');
+        hud.style.cssText = 'position:fixed;bottom:14px;left:50%;transform:translateX(-50%);color:#aaa;background:rgba(0,0,0,0.6);padding:6px 14px;border-radius:6px;font:11px/1.3 monospace;z-index:100;display:none;white-space:nowrap;';
+        document.body.appendChild(hud);
+
+        function toggle() {
+            walkMode = !walkMode;
+            window._walkMode = walkMode;
+            btn.innerHTML = walkMode ? '🔭 Orbit [F]' : '🚶 Walk [F]';
+            btn.style.borderColor = walkMode ? '#4a4' : '#555';
+            hud.style.display = walkMode ? 'block' : 'none';
+            if (walkMode) {
+                wk = { x: camera.position.x, y: 1.6, z: camera.position.z, rotY: 0, rotX: 0 };
+                controls.enabled = false;
+                renderer.domElement.requestPointerLock();
+            } else {
+                controls.enabled = true;
+                document.exitPointerLock();
+                camera.position.set(10, 18.0, -15.0);
+                controls.target.set(0, 5.4, 0);
+            }
+        }
+
+        btn.onclick = toggle;
+        document.addEventListener('keydown', e => {
+            keys[e.key.toLowerCase()] = true;
+            if (e.key.toLowerCase() === 'f' && e.target === document.body) toggle();
+            if (e.key === 'Escape' && walkMode) toggle();
+        });
+        document.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+        // Mouse look
+        document.addEventListener('mousemove', e => {
+            if (!walkMode || !document.pointerLockElement) return;
+            wk.rotY -= e.movementX * 0.002;
+            wk.rotX = Math.max(-1.4, Math.min(1.4, wk.rotX - e.movementY * 0.002));
+        });
+
+        // Re-lock on click
+        renderer.domElement.addEventListener('click', () => {
+            if (walkMode && !document.pointerLockElement) renderer.domElement.requestPointerLock();
+        });
+
+        // Q/E rotation (keyboard look without mouse)
+        // Arrow keys + WASD movement
+
+        window._walkUpdate = function() {
+            const fwd = { x: Math.sin(wk.rotY), z: Math.cos(wk.rotY) };
+            const rgt = { x: Math.cos(wk.rotY), z: -Math.sin(wk.rotY) };
+
+            if (keys['w'] || keys['arrowup'])    { wk.x += fwd.x*SPEED; wk.z += fwd.z*SPEED; }
+            if (keys['s'] || keys['arrowdown'])  { wk.x -= fwd.x*SPEED; wk.z -= fwd.z*SPEED; }
+            if (keys['a'] || keys['arrowleft'])  { wk.x -= rgt.x*SPEED; wk.z -= rgt.z*SPEED; }
+            if (keys['d'] || keys['arrowright']) { wk.x += rgt.x*SPEED; wk.z += rgt.z*SPEED; }
+            if (keys['q']) wk.rotY += 0.03;
+            if (keys['e']) wk.rotY -= 0.03;
+            if (keys['r']) wk.rotX = Math.min(1.4, wk.rotX + 0.02);
+            if (keys['t']) wk.rotX = Math.max(-1.4, wk.rotX - 0.02);
+
+            camera.position.set(wk.x, wk.y, wk.z);
+            camera.lookAt(
+                wk.x + Math.sin(wk.rotY) * 10,
+                wk.y + Math.sin(wk.rotX) * 10,
+                wk.z + Math.cos(wk.rotY) * 10
+            );
+
+            const deg = ((wk.rotY * 180 / Math.PI) % 360 + 360) % 360;
+            const dir = ['N','NE','E','SE','S','SW','W','NW'][Math.round(deg/45)%8];
+            hud.innerHTML = 'pos: ('+wk.x.toFixed(1)+', '+wk.z.toFixed(1)+') '+
+                ' facing: '+dir+
+                ' &nbsp;│&nbsp; WASD: move &nbsp; Mouse/QE: look &nbsp; F: orbit &nbsp; Esc: exit';
+        };
+
+        window._walkMode = false;
+    })();
+
+    // Resize
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+</script>
+</body>
+</html>
